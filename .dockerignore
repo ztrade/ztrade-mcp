@@ -1,0 +1,8 @@
+*.md
+.git
+.gitignore
+.vscode
+*.so
+*.log
+report.html
+PLAN.md

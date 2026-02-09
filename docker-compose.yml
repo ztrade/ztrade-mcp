@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  ztrade-mcp:
+    build: .
+    image: ztrade/ztrade-mcp:latest
+    container_name: ztrade-mcp
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./configs/ztrade.yaml:/etc/ztrade/ztrade.yaml:ro
+      - ztrade-data:/data/ztrade
+      - ./strategies:/strategies:ro
+    environment:
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  ztrade-data:
