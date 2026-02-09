@@ -9,6 +9,7 @@ import (
 // RegisterAll registers all MCP tools on the server.
 func RegisterAll(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper) {
 	registerListData(s, db)
+	registerListExchanges(s, cfg)
 	registerQueryKline(s, db)
 	registerDownloadKline(s, db, cfg)
 	registerRunBacktest(s, db)
