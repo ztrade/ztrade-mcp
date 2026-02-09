@@ -4,11 +4,10 @@ on:
   workflow_run:
     workflows: ["Build and Push Docker Image"]
     types: [completed]
-    branches: [main]
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: [self-hosted, mcp]
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       startsWith(github.event.workflow_run.head_branch, 'v')
