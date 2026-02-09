@@ -31,7 +31,7 @@ jobs:
       - name: Update docker-compose image tag
         run: |
           cd ${{ env.DEPLOY_DIR }}
-          sed -i "s|image:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}|" docker-compose.yml
+          sed -i "s|image: ghcr.io/ztrade/ztrade-mcp:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}|" docker-compose.yml
 
       - name: Deploy
         run: |
