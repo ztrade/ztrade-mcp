@@ -1,0 +1,59 @@
+services:
+  ztrade-mcp:
+    image: ghcr.io/ztrade/ztrade-mcp:latest
+    container_name: ztrade-mcp
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./configs/ztrade.yaml:/etc/ztrade/ztrade.yaml:ro
+      - ztrade-data:/data/ztrade
+      - ./strategies:/strategies:ro
+    environment:
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  mysql:
+    image: mysql:8.0
+    container_name: ztrade-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ztrade123}
+      MYSQL_DATABASE: exchange
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-connections=200
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-ztrade123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  ztrade-data:
+  mysql-data:

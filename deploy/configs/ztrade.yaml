@@ -1,0 +1,31 @@
+# 交易所配置
+exchanges:
+  binance:
+    type: binance
+    kind: futures
+    key: YOUR_API_KEY_HERE
+    secret: YOUR_API_SECRET_HERE
+    timeout: 30s
+
+# 数据库配置（使用 docker-compose 中的 MySQL）
+db:
+  type: mysql
+  uri: root:ztrade123@tcp(mysql:3306)/exchange?charset=utf8mb4&parseTime=True&loc=Local
+
+# MCP 配置
+mcp:
+  listen: ":8080"
+  enableLiveTrade: false
+  auth:
+    enabled: true
+    type: token
+    tokens:
+      - token: "sk-ztrade-change-me-to-a-random-string"
+        name: "admin"
+        role: admin
+      - token: "sk-ztrade-readonly-change-me"
+        name: "reader"
+        role: reader
+
+# 代理（如需科学上网取消注释）
+#proxy: socks5://127.0.0.1:1080

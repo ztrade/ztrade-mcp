@@ -1,0 +1,58 @@
+name: Deploy to Local Server
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Docker Image"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+    
+    env:
+      DEPLOY_DIR: /data/ztrade-mcp
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+
+    steps:
+      - name: Get tag name
+        id: tag
+        run: echo "tag=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull new image
+        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+
+      - name: Update docker-compose image tag
+        run: |
+          cd ${{ env.DEPLOY_DIR }}
+          sed -i "s|image:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}|" docker-compose.yml
+
+      - name: Deploy
+        run: |
+          cd ${{ env.DEPLOY_DIR }}
+          docker compose pull
+          docker compose up -d --remove-orphans
+
+      - name: Wait for health check
+        run: |
+          echo "Waiting for service to be healthy..."
+          for i in $(seq 1 30); do
+            if wget --spider -q http://localhost:8080/health 2>/dev/null; then
+              echo "Service is healthy!"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health check failed!"
+          docker compose -f ${{ env.DEPLOY_DIR }}/docker-compose.yml logs --tail=50
+          exit 1
+
+      - name: Clean up old images
+        run: docker image prune -f --filter "until=168h"
