@@ -9,7 +9,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/ztrade/exchange v0.1.0
 	github.com/ztrade/trademodel v1.1.8
-	github.com/ztrade/ztrade v0.3.5
+	github.com/ztrade/ztrade v0.3.6
 	xorm.io/xorm v1.3.11
 )
 
