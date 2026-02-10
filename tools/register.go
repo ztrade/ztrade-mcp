@@ -10,7 +10,9 @@ import (
 func RegisterAll(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper) {
 	registerListData(s, db)
 	registerListExchanges(s, cfg)
+	registerListSymbols(s, cfg)
 	registerQueryKline(s, db)
+	registerFetchKline(s, cfg)
 	registerDownloadKline(s, db, cfg)
 	registerRunBacktest(s, db)
 	registerBuildStrategy(s)
