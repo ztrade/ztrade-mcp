@@ -18,6 +18,7 @@ import (
 	"github.com/ztrade/ztrade-mcp/auth"
 	"github.com/ztrade/ztrade-mcp/prompts"
 	"github.com/ztrade/ztrade-mcp/resources"
+	"github.com/ztrade/ztrade-mcp/store"
 	"github.com/ztrade/ztrade-mcp/tools"
 )
 
@@ -48,6 +49,13 @@ func main() {
 	// Wrap config for exchange (used by cmd/trade etc.)
 	_ = exchange.WrapViper(cfg)
 
+	// Init script store
+	var scriptStore *store.Store
+	scriptStore, err = store.NewStore(cfg)
+	if err != nil {
+		log.Warnf("init script store failed: %s (script management tools may not work)", err.Error())
+	}
+
 	// Load auth config
 	authCfg := auth.LoadConfig(cfg)
 
@@ -68,7 +76,7 @@ func main() {
 	mcpServer := server.NewMCPServer("ztrade", Version, serverOpts...)
 
 	// Register tools
-	tools.RegisterAll(mcpServer, db, cfg)
+	tools.RegisterAll(mcpServer, db, cfg, scriptStore)
 
 	// Register resources
 	resources.RegisterAll(mcpServer)
