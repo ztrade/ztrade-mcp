@@ -7,9 +7,9 @@ require (
 	github.com/mark3labs/mcp-go v0.43.2
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/viper v1.21.0
-	github.com/ztrade/exchange v0.0.9
-	github.com/ztrade/trademodel v1.1.7
-	github.com/ztrade/ztrade v0.3.4
+	github.com/ztrade/exchange v0.1.0
+	github.com/ztrade/trademodel v1.1.8
+	github.com/ztrade/ztrade v0.3.5
 	xorm.io/xorm v1.3.11
 )
 
@@ -120,7 +120,7 @@ require (
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yosssi/ace v0.0.5 // indirect
-	github.com/ztrade/base v0.2.2 // indirect
+	github.com/ztrade/base v0.2.3 // indirect
 	github.com/ztrade/ctp v0.0.4 // indirect
 	github.com/ztrade/indicator v1.1.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
