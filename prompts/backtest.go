@@ -77,7 +77,16 @@ func registerBacktestPrompt(s *server.MCPServer) {
 		userMsg += "1. Summary of key metrics\n"
 		userMsg += "2. Strengths and weaknesses\n"
 		userMsg += "3. Specific optimization suggestions\n"
-		userMsg += "4. Risk assessment"
+		userMsg += "4. Risk assessment\n\n"
+		userMsg += "## Async Task Handling\n"
+		userMsg += "When the backtest or download time range exceeds 30 days, the task runs asynchronously.\n"
+		userMsg += "The tool will return {\"async\": true, \"taskId\": \"xxx\"} instead of the final result.\n"
+		userMsg += "In this case:\n"
+		userMsg += "1. Inform the user the task is running in the background.\n"
+		userMsg += "2. Use get_task_status with the taskId to poll progress.\n"
+		userMsg += "3. Once status is 'completed', use get_task_result to get the full result.\n"
+		userMsg += "4. If status is 'failed', report the error to the user.\n"
+		userMsg += "5. Use list_tasks to see all running/completed async tasks.\n"
 
 		return &mcp.GetPromptResult{
 			Description: "Backtest analysis guide for ztrade",

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/ztrade/ztrade/pkg/ctl"
@@ -13,9 +15,66 @@ import (
 	"github.com/ztrade/ztrade/pkg/report"
 )
 
-func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore) {
+// runBacktestCore executes the actual backtest logic and returns the result map or error.
+func runBacktestCore(db *dbstore.DBStore, script, exchangeName, symbol, param string, start, end time.Time, balanceF, feeF, leverF float64) (map[string]interface{}, error) {
+	bt, err := ctl.NewBacktest(db, exchangeName, symbol, param, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create backtest: %s", err.Error())
+	}
+
+	bt.SetScript(script)
+	bt.SetBalanceInit(balanceF, feeF)
+	bt.SetLever(leverF)
+
+	rpt := report.NewReportSimple()
+	rpt.SetTimeRange(start, end)
+	rpt.SetFee(feeF)
+	rpt.SetLever(leverF)
+	bt.SetReporter(rpt)
+
+	err = bt.Run()
+	if err != nil {
+		return nil, fmt.Errorf("backtest failed: %s", err.Error())
+	}
+
+	rawResult, err := bt.Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get result: %s", err.Error())
+	}
+
+	resultData, ok := rawResult.(report.ReportResult)
+	if !ok {
+		return nil, fmt.Errorf("unexpected result type")
+	}
+
+	result := map[string]interface{}{
+		"totalActions":     resultData.TotalAction,
+		"winRate":          resultData.WinRate,
+		"totalProfit":      resultData.TotalProfit,
+		"profitPercent":    resultData.ProfitPercent,
+		"maxDrawdown":      resultData.MaxDrawdown,
+		"maxDrawdownValue": resultData.MaxDrawdownValue,
+		"maxLose":          resultData.MaxLose,
+		"totalFee":         resultData.TotalFee,
+		"startBalance":     resultData.StartBalance,
+		"endBalance":       resultData.EndBalance,
+		"totalReturn":      resultData.TotalReturn,
+		"annualReturn":     resultData.AnnualReturn,
+		"sharpeRatio":      resultData.SharpeRatio,
+		"sortinoRatio":     resultData.SortinoRatio,
+		"volatility":       resultData.Volatility,
+		"profitFactor":     resultData.ProfitFactor,
+		"calmarRatio":      resultData.CalmarRatio,
+		"overallScore":     resultData.OverallScore,
+		"longTrades":       resultData.LongTrades,
+		"shortTrades":      resultData.ShortTrades,
+	}
+	return result, nil
+}
+
+func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, tm *TaskManager) {
 	tool := mcp.NewTool("run_backtest",
-		mcp.WithDescription("Run a backtest with a strategy script on historical data. Returns structured results including profit, win rate, sharpe ratio, max drawdown, etc."),
+		mcp.WithDescription("Run a backtest with a strategy script on historical data. Returns structured results including profit, win rate, sharpe ratio, max drawdown, etc. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
 		mcp.WithString("script", mcp.Required(), mcp.Description("Strategy file path (.go or .so)")),
 		mcp.WithString("exchange", mcp.Required(), mcp.Description("Exchange name (e.g., binance)")),
 		mcp.WithString("symbol", mcp.Required(), mcp.Description("Trading pair (e.g., BTCUSDT)")),
@@ -33,7 +92,7 @@ func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore) {
 		}
 
 		script := req.GetString("script", "")
-		exchange := req.GetString("exchange", "")
+		exchangeName := req.GetString("exchange", "")
 		symbol := req.GetString("symbol", "")
 		startStr := req.GetString("start", "")
 		endStr := req.GetString("end", "")
@@ -61,57 +120,47 @@ func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore) {
 			leverF = 1
 		}
 
-		bt, err := ctl.NewBacktest(db, exchange, symbol, param, start, end)
+		// If time range > threshold, run asynchronously
+		if ShouldRunAsync(start, end) {
+			taskID := tm.CreateTask("backtest", map[string]string{
+				"script":   script,
+				"exchange": exchangeName,
+				"symbol":   symbol,
+				"start":    startStr,
+				"end":      endStr,
+			})
+
+			go func() {
+				tm.StartTask(taskID)
+				doneCh := tm.ProgressEstimator(taskID, "backtest", start, end)
+
+				result, err := runBacktestCore(db, script, exchangeName, symbol, param, start, end, balanceF, feeF, leverF)
+				close(doneCh)
+
+				if err != nil {
+					log.Errorf("async backtest task %s failed: %s", taskID, err.Error())
+					tm.FailTask(taskID, err.Error())
+					return
+				}
+
+				data, _ := json.MarshalIndent(result, "", "  ")
+				tm.CompleteTask(taskID, string(data))
+				log.Infof("async backtest task %s completed", taskID)
+			}()
+
+			asyncResult := map[string]interface{}{
+				"async":   true,
+				"taskId":  taskID,
+				"message": fmt.Sprintf("Backtest time range exceeds %d days, running asynchronously. Use get_task_status with taskId '%s' to check progress, or get_task_result to retrieve the final result.", AsyncThresholdDays, taskID),
+			}
+			data, _ := json.MarshalIndent(asyncResult, "", "  ")
+			return mcp.NewToolResultText(string(data)), nil
+		}
+
+		// Synchronous execution for short time ranges
+		result, err := runBacktestCore(db, script, exchangeName, symbol, param, start, end, balanceF, feeF, leverF)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to create backtest: %s", err.Error())), nil
-		}
-
-		bt.SetScript(script)
-		bt.SetBalanceInit(balanceF, feeF)
-		bt.SetLever(leverF)
-
-		rpt := report.NewReportSimple()
-		rpt.SetTimeRange(start, end)
-		rpt.SetFee(feeF)
-		rpt.SetLever(leverF)
-		bt.SetReporter(rpt)
-
-		err = bt.Run()
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("backtest failed: %s", err.Error())), nil
-		}
-
-		rawResult, err := bt.Result()
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to get result: %s", err.Error())), nil
-		}
-
-		resultData, ok := rawResult.(report.ReportResult)
-		if !ok {
-			return mcp.NewToolResultError("unexpected result type"), nil
-		}
-
-		result := map[string]interface{}{
-			"totalActions":     resultData.TotalAction,
-			"winRate":          resultData.WinRate,
-			"totalProfit":      resultData.TotalProfit,
-			"profitPercent":    resultData.ProfitPercent,
-			"maxDrawdown":      resultData.MaxDrawdown,
-			"maxDrawdownValue": resultData.MaxDrawdownValue,
-			"maxLose":          resultData.MaxLose,
-			"totalFee":         resultData.TotalFee,
-			"startBalance":     resultData.StartBalance,
-			"endBalance":       resultData.EndBalance,
-			"totalReturn":      resultData.TotalReturn,
-			"annualReturn":     resultData.AnnualReturn,
-			"sharpeRatio":      resultData.SharpeRatio,
-			"sortinoRatio":     resultData.SortinoRatio,
-			"volatility":       resultData.Volatility,
-			"profitFactor":     resultData.ProfitFactor,
-			"calmarRatio":      resultData.CalmarRatio,
-			"overallScore":     resultData.OverallScore,
-			"longTrades":       resultData.LongTrades,
-			"shortTrades":      resultData.ShortTrades,
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		data, _ := json.MarshalIndent(result, "", "  ")

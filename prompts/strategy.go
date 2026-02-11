@@ -64,8 +64,17 @@ Read "ztrade://doc/strategy" and "ztrade://doc/engine" for full API reference.
 ## Available Tools
 - create_strategy: Generate strategy skeleton code
 - build_strategy: Compile .go to .so plugin
-- run_backtest: Run backtest with results
-- query_kline: Query historical data for analysis`
+- run_backtest: Run backtest with results (auto-async when time range > 30 days)
+- run_backtest_managed: Run backtest for managed scripts with auto-recording (auto-async when time range > 30 days)
+- download_kline: Download K-line data (auto-async when time range > 30 days or auto mode)
+- query_kline: Query historical data for analysis
+- get_task_status: Check progress of async tasks
+- get_task_result: Get result of completed async tasks
+- list_tasks: List all async tasks
+
+## Async Task Handling
+When a backtest or download time range exceeds 30 days, the tool returns a task ID instead of the final result.
+Use get_task_status to poll progress, and get_task_result to retrieve the final result once completed.`
 
 		userMsg := "Please help me create a " + strategyType + " strategy"
 		if indicators != "" {

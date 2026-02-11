@@ -9,15 +9,16 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	log "github.com/sirupsen/logrus"
 	"github.com/ztrade/ztrade-mcp/store"
 	"github.com/ztrade/ztrade/pkg/ctl"
 	"github.com/ztrade/ztrade/pkg/process/dbstore"
 	"github.com/ztrade/ztrade/pkg/report"
 )
 
-func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *store.Store) {
+func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *store.Store, tm *TaskManager) {
 	tool := mcp.NewTool("run_backtest_managed",
-		mcp.WithDescription("Run a backtest using a managed script from the database. The script is extracted from DB, backtested, and results are automatically saved for performance tracking."),
+		mcp.WithDescription("Run a backtest using a managed script from the database. The script is extracted from DB, backtested, and results are automatically saved for performance tracking. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
 		mcp.WithNumber("scriptId", mcp.Required(), mcp.Description("Script ID in the database")),
 		mcp.WithString("exchange", mcp.Required(), mcp.Description("Exchange name (e.g., binance)")),
 		mcp.WithString("symbol", mcp.Required(), mcp.Description("Trading pair (e.g., BTCUSDT)")),
@@ -92,98 +93,115 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 			return mcp.NewToolResultError(fmt.Sprintf("failed to write temp script: %s", err.Error())), nil
 		}
 
-		bt, err := ctl.NewBacktest(db, exchangeName, symbol, param, start, end)
+		// runManagedBacktest is the core logic shared by sync and async paths
+		runManagedBacktest := func() (map[string]interface{}, error) {
+			bt, err := ctl.NewBacktest(db, exchangeName, symbol, param, start, end)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create backtest: %s", err.Error())
+			}
+
+			bt.SetScript(tmpFile)
+			bt.SetBalanceInit(balanceF, feeF)
+			bt.SetLever(leverF)
+
+			rpt := report.NewReportSimple()
+			rpt.SetTimeRange(start, end)
+			rpt.SetFee(feeF)
+			rpt.SetLever(leverF)
+			bt.SetReporter(rpt)
+
+			if err := bt.Run(); err != nil {
+				return nil, fmt.Errorf("backtest failed: %s", err.Error())
+			}
+
+			rawResult, err := bt.Result()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get result: %s", err.Error())
+			}
+
+			resultData, ok := rawResult.(report.ReportResult)
+			if !ok {
+				return nil, fmt.Errorf("unexpected result type")
+			}
+
+			// Save backtest record
+			record := &store.BacktestRecord{
+				ScriptID: scriptID, ScriptVersion: scriptVersion,
+				Exchange: exchangeName, Symbol: symbol,
+				StartTime: start, EndTime: end,
+				InitBalance: balanceF, Fee: feeF, Lever: leverF, Param: param,
+				TotalActions: resultData.TotalAction, WinRate: resultData.WinRate,
+				TotalProfit: resultData.TotalProfit, ProfitPercent: resultData.ProfitPercent,
+				MaxDrawdown: resultData.MaxDrawdown, MaxDrawdownValue: resultData.MaxDrawdownValue,
+				MaxLose: resultData.MaxLose, TotalFee: resultData.TotalFee,
+				StartBalance: resultData.StartBalance, EndBalance: resultData.EndBalance,
+				TotalReturn: resultData.TotalReturn, AnnualReturn: resultData.AnnualReturn,
+				SharpeRatio: resultData.SharpeRatio, SortinoRatio: resultData.SortinoRatio,
+				Volatility: resultData.Volatility, ProfitFactor: resultData.ProfitFactor,
+				CalmarRatio: resultData.CalmarRatio, OverallScore: resultData.OverallScore,
+				LongTrades: resultData.LongTrades, ShortTrades: resultData.ShortTrades,
+			}
+			if saveErr := st.SaveBacktestRecord(record); saveErr != nil {
+				log.Warnf("backtest completed but failed to save record: %s", saveErr.Error())
+			}
+
+			result := map[string]interface{}{
+				"recordId": record.ID, "scriptId": scriptID,
+				"scriptName": script.Name, "scriptVersion": scriptVersion,
+				"exchange": exchangeName, "symbol": symbol,
+				"totalActions": resultData.TotalAction, "winRate": resultData.WinRate,
+				"totalProfit": resultData.TotalProfit, "profitPercent": resultData.ProfitPercent,
+				"maxDrawdown": resultData.MaxDrawdown, "maxDrawdownValue": resultData.MaxDrawdownValue,
+				"totalReturn": resultData.TotalReturn, "annualReturn": resultData.AnnualReturn,
+				"sharpeRatio": resultData.SharpeRatio, "sortinoRatio": resultData.SortinoRatio,
+				"volatility": resultData.Volatility, "profitFactor": resultData.ProfitFactor,
+				"calmarRatio": resultData.CalmarRatio, "overallScore": resultData.OverallScore,
+				"longTrades": resultData.LongTrades, "shortTrades": resultData.ShortTrades,
+			}
+			return result, nil
+		}
+
+		// If time range > threshold, run asynchronously
+		if ShouldRunAsync(start, end) {
+			taskID := tm.CreateTask("backtest_managed", map[string]string{
+				"scriptId": fmt.Sprintf("%d", scriptID),
+				"exchange": exchangeName,
+				"symbol":   symbol,
+				"start":    startStr,
+				"end":      endStr,
+			})
+
+			go func() {
+				tm.StartTask(taskID)
+				doneCh := tm.ProgressEstimator(taskID, "backtest_managed", start, end)
+
+				result, err := runManagedBacktest()
+				close(doneCh)
+
+				if err != nil {
+					log.Errorf("async managed backtest task %s failed: %s", taskID, err.Error())
+					tm.FailTask(taskID, err.Error())
+					return
+				}
+
+				data, _ := json.MarshalIndent(result, "", "  ")
+				tm.CompleteTask(taskID, string(data))
+				log.Infof("async managed backtest task %s completed", taskID)
+			}()
+
+			asyncResult := map[string]interface{}{
+				"async":   true,
+				"taskId":  taskID,
+				"message": fmt.Sprintf("Backtest time range exceeds %d days, running asynchronously. Use get_task_status with taskId '%s' to check progress, or get_task_result to retrieve the final result.", AsyncThresholdDays, taskID),
+			}
+			data, _ := json.MarshalIndent(asyncResult, "", "  ")
+			return mcp.NewToolResultText(string(data)), nil
+		}
+
+		// Synchronous execution for short time ranges
+		result, err := runManagedBacktest()
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to create backtest: %s", err.Error())), nil
-		}
-
-		bt.SetScript(tmpFile)
-		bt.SetBalanceInit(balanceF, feeF)
-		bt.SetLever(leverF)
-
-		rpt := report.NewReportSimple()
-		rpt.SetTimeRange(start, end)
-		rpt.SetFee(feeF)
-		rpt.SetLever(leverF)
-		bt.SetReporter(rpt)
-
-		err = bt.Run()
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("backtest failed: %s", err.Error())), nil
-		}
-
-		rawResult, err := bt.Result()
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to get result: %s", err.Error())), nil
-		}
-
-		resultData, ok := rawResult.(report.ReportResult)
-		if !ok {
-			return mcp.NewToolResultError("unexpected result type"), nil
-		}
-
-		// Save backtest record
-		record := &store.BacktestRecord{
-			ScriptID:         scriptID,
-			ScriptVersion:    scriptVersion,
-			Exchange:         exchangeName,
-			Symbol:           symbol,
-			StartTime:        start,
-			EndTime:          end,
-			InitBalance:      balanceF,
-			Fee:              feeF,
-			Lever:            leverF,
-			Param:            param,
-			TotalActions:     resultData.TotalAction,
-			WinRate:          resultData.WinRate,
-			TotalProfit:      resultData.TotalProfit,
-			ProfitPercent:    resultData.ProfitPercent,
-			MaxDrawdown:      resultData.MaxDrawdown,
-			MaxDrawdownValue: resultData.MaxDrawdownValue,
-			MaxLose:          resultData.MaxLose,
-			TotalFee:         resultData.TotalFee,
-			StartBalance:     resultData.StartBalance,
-			EndBalance:       resultData.EndBalance,
-			TotalReturn:      resultData.TotalReturn,
-			AnnualReturn:     resultData.AnnualReturn,
-			SharpeRatio:      resultData.SharpeRatio,
-			SortinoRatio:     resultData.SortinoRatio,
-			Volatility:       resultData.Volatility,
-			ProfitFactor:     resultData.ProfitFactor,
-			CalmarRatio:      resultData.CalmarRatio,
-			OverallScore:     resultData.OverallScore,
-			LongTrades:       resultData.LongTrades,
-			ShortTrades:      resultData.ShortTrades,
-		}
-
-		if err := st.SaveBacktestRecord(record); err != nil {
-			// Don't fail the whole operation, just warn
-			return mcp.NewToolResultText(fmt.Sprintf("backtest completed but failed to save record: %s", err.Error())), nil
-		}
-
-		result := map[string]interface{}{
-			"recordId":         record.ID,
-			"scriptId":         scriptID,
-			"scriptName":       script.Name,
-			"scriptVersion":    scriptVersion,
-			"exchange":         exchangeName,
-			"symbol":           symbol,
-			"totalActions":     resultData.TotalAction,
-			"winRate":          resultData.WinRate,
-			"totalProfit":      resultData.TotalProfit,
-			"profitPercent":    resultData.ProfitPercent,
-			"maxDrawdown":      resultData.MaxDrawdown,
-			"maxDrawdownValue": resultData.MaxDrawdownValue,
-			"totalReturn":      resultData.TotalReturn,
-			"annualReturn":     resultData.AnnualReturn,
-			"sharpeRatio":      resultData.SharpeRatio,
-			"sortinoRatio":     resultData.SortinoRatio,
-			"volatility":       resultData.Volatility,
-			"profitFactor":     resultData.ProfitFactor,
-			"calmarRatio":      resultData.CalmarRatio,
-			"overallScore":     resultData.OverallScore,
-			"longTrades":       resultData.LongTrades,
-			"shortTrades":      resultData.ShortTrades,
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")
 		return mcp.NewToolResultText(string(data)), nil

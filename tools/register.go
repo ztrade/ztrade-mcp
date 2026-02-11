@@ -9,13 +9,16 @@ import (
 
 // RegisterAll registers all MCP tools on the server.
 func RegisterAll(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper, st *store.Store) {
+	// Create shared task manager for async operations
+	tm := NewTaskManager()
+
 	registerListData(s, db)
 	registerListExchanges(s, cfg)
 	registerListSymbols(s, cfg)
 	registerQueryKline(s, db)
 	registerFetchKline(s, cfg)
-	registerDownloadKline(s, db, cfg)
-	registerRunBacktest(s, db)
+	registerDownloadKline(s, db, cfg, tm)
+	registerRunBacktest(s, db, tm)
 	registerBuildStrategy(s)
 	registerCreateStrategy(s)
 	registerStartTrade(s, cfg)
@@ -37,7 +40,12 @@ func RegisterAll(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper, st 
 	registerRollbackScript(s, st)
 
 	// Script performance tracking
-	registerRunBacktestManaged(s, db, st)
+	registerRunBacktestManaged(s, db, st, tm)
 	registerListBacktestRecords(s, st)
 	registerScriptPerformance(s, st)
+
+	// Async task management tools
+	registerGetTaskStatus(s, tm)
+	registerGetTaskResult(s, tm)
+	registerListTasks(s, tm)
 }
