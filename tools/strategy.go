@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/ztrade/ztrade-mcp/store"
 )
 
 const strategyTemplate = `package strategy
@@ -99,7 +101,7 @@ type mergeData struct {
 	Suffix string
 }
 
-func registerCreateStrategy(s *server.MCPServer) {
+func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 	tool := mcp.NewTool("create_strategy",
 		mcp.WithDescription("Generate a strategy source code skeleton from a template. Includes standard ztrade strategy interface methods (Param, Init, OnCandle, OnPosition, etc.)."),
 		mcp.WithString("name", mcp.Required(), mcp.Description("Strategy struct name (PascalCase, e.g., 'EmaGoldenCross')")),
@@ -160,15 +162,18 @@ func registerCreateStrategy(s *server.MCPServer) {
 			return mcp.NewToolResultError(fmt.Sprintf("template parse error: %s", err.Error())), nil
 		}
 
-		f, err := os.Create(outputPath)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to create file: %s", err.Error())), nil
-		}
-		defer f.Close()
-
-		err = tmpl.Execute(f, data)
+		// Render to buffer first so we can save to both file and database
+		var buf bytes.Buffer
+		err = tmpl.Execute(&buf, data)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("template execution error: %s", err.Error())), nil
+		}
+		content := buf.String()
+
+		// Write to file
+		err = os.WriteFile(outputPath, []byte(content), 0644)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to create file: %s", err.Error())), nil
 		}
 
 		result := map[string]interface{}{
@@ -178,6 +183,22 @@ func registerCreateStrategy(s *server.MCPServer) {
 			"indicators": indicators,
 			"periods":    periods,
 		}
+
+		// Also persist to database so list_scripts can find it
+		if st != nil {
+			script := &store.Script{
+				Name:        name,
+				Content:     content,
+				Description: description,
+				Language:    "go",
+			}
+			if err := st.CreateScript(script); err != nil {
+				result["db_warning"] = fmt.Sprintf("file created but failed to save to database: %s", err.Error())
+			} else {
+				result["script_id"] = script.ID
+			}
+		}
+
 		resultJSON, _ := json.MarshalIndent(result, "", "  ")
 		return mcp.NewToolResultText(string(resultJSON)), nil
 	})

@@ -20,7 +20,7 @@ func RegisterAll(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper, st 
 	registerDownloadKline(s, db, cfg, tm)
 	registerRunBacktest(s, db, tm)
 	registerBuildStrategy(s)
-	registerCreateStrategy(s)
+	registerCreateStrategy(s, st)
 	registerStartTrade(s, cfg)
 	registerStopTrade(s)
 	registerTradeStatus(s)
