@@ -10,6 +10,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/ztrade/ztrade-mcp/store"
 	"github.com/ztrade/ztrade/pkg/ctl"
 	"github.com/ztrade/ztrade/pkg/process/dbstore"
 	"github.com/ztrade/ztrade/pkg/report"
@@ -101,6 +102,38 @@ func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, tm *TaskManag
 		leverF := req.GetFloat("lever", 0)
 		param := req.GetString("param", "")
 
+		// --- 自动从数据库读取策略并编译为so ---
+		var soPath string
+		var goPath string
+		// var useSo bool // 已不再使用
+		st := getStoreFromContext(ctx)
+		if st != nil && script != "" && (isLikelyID(script) || isLikelyName(script)) {
+			// 允许 script 传入策略ID或名称
+			var s *store.Script
+			var err error
+			if isLikelyID(script) {
+				id, _ := parseID(script)
+				s, err = st.GetScript(id)
+			} else {
+				s, err = st.GetScriptByName(script)
+			}
+			if err != nil {
+				return mcp.NewToolResultError("strategy not found: " + err.Error()), nil
+			}
+			goPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.go", s.Name, s.Version)
+			soPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.so", s.Name, s.Version)
+			// 写入go文件
+			if err := writeFile(goPath, s.Content); err != nil {
+				return mcp.NewToolResultError("failed to write temp go file: " + err.Error()), nil
+			}
+			// 编译so
+			builder := ctl.NewBuilder(goPath, soPath)
+			if err := builder.Build(); err != nil {
+				return mcp.NewToolResultError("build failed: " + err.Error()), nil
+			}
+			script = soPath
+		}
+
 		start, err := time.Parse("2006-01-02 15:04:05", startStr)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("invalid start time: %s", err.Error())), nil
@@ -166,4 +199,44 @@ func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, tm *TaskManag
 		data, _ := json.MarshalIndent(result, "", "  ")
 		return mcp.NewToolResultText(string(data)), nil
 	})
+}
+
+// getStoreFromContext 尝试从 context 获取 *store.Store
+func getStoreFromContext(ctx context.Context) *store.Store {
+	v := ctx.Value("store")
+	if v == nil {
+		return nil
+	}
+	st, ok := v.(*store.Store)
+	if !ok {
+		return nil
+	}
+	return st
+}
+
+// isLikelyID 判断字符串是否为数字ID
+func isLikelyID(s string) bool {
+	_, err := parseID(s)
+	return err == nil
+}
+
+func parseID(s string) (int64, error) {
+	var id int64
+	_, err := fmt.Sscanf(s, "%d", &id)
+	return id, err
+}
+
+// isLikelyName 判断是否为合法策略名（可根据实际需求调整）
+func isLikelyName(s string) bool {
+	// 只要不是纯路径或.so/.go文件名就认为是名字
+	if len(s) == 0 {
+		return false
+	}
+	if len(s) > 3 && (s[len(s)-3:] == ".go" || s[len(s)-3:] == ".so") {
+		return false
+	}
+	if len(s) > 0 && (s[0] == '/' || s[0] == '.') {
+		return false
+	}
+	return true
 }

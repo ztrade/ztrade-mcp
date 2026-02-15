@@ -10,48 +10,11 @@ import (
 	"github.com/ztrade/ztrade-mcp/store"
 )
 
-func registerSaveScript(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("save_script",
-		mcp.WithDescription("Save a new strategy script to the database. The script content will be stored with version tracking. Use this to persist strategy scripts for management and backtesting."),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Unique script name (e.g., 'ema_cross_v1')")),
-		mcp.WithString("content", mcp.Required(), mcp.Description("Full strategy source code (Go code)")),
-		mcp.WithString("description", mcp.Description("Brief description of the strategy")),
-		mcp.WithString("tags", mcp.Description("Comma-separated tags (e.g., 'trend,ema,momentum')")),
-	)
-
-	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if st == nil {
-			return mcp.NewToolResultError("script store not initialized (check database config)"), nil
-		}
-
-		script := &store.Script{
-			Name:        req.GetString("name", ""),
-			Content:     req.GetString("content", ""),
-			Description: req.GetString("description", ""),
-			Tags:        req.GetString("tags", ""),
-			Language:    "go",
-		}
-
-		if err := st.CreateScript(script); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to save script: %s", err.Error())), nil
-		}
-
-		result := map[string]interface{}{
-			"status":  "saved",
-			"id":      script.ID,
-			"name":    script.Name,
-			"version": script.Version,
-		}
-		data, _ := json.MarshalIndent(result, "", "  ")
-		return mcp.NewToolResultText(string(data)), nil
-	})
-}
-
-func registerGetScript(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("get_script",
-		mcp.WithDescription("Retrieve a strategy script by ID or name. Returns full script content and metadata."),
-		mcp.WithNumber("id", mcp.Description("Script ID")),
-		mcp.WithString("name", mcp.Description("Script name. Used if id is not provided.")),
+func registerGetStrategy(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("get_strategy",
+		mcp.WithDescription("Retrieve a strategy by ID or name. Returns full strategy content and metadata."),
+		mcp.WithNumber("id", mcp.Description("Strategy ID")),
+		mcp.WithString("name", mcp.Description("Strategy name. Used if id is not provided.")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -82,9 +45,9 @@ func registerGetScript(s *server.MCPServer, st *store.Store) {
 	})
 }
 
-func registerListScripts(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("list_scripts",
-		mcp.WithDescription("List all strategy scripts in the database with optional filters. Returns script metadata (without full content for brevity)."),
+func registerListStrategies(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("list_strategies",
+		mcp.WithDescription("List all strategies in the database with optional filters. Returns strategy metadata (without full content for brevity)."),
 		mcp.WithString("status", mcp.Description("Filter by status: active, archived, deleted. Default: show all non-deleted.")),
 		mcp.WithString("keyword", mcp.Description("Search keyword to filter by name, description, or tags.")),
 	)
@@ -139,11 +102,11 @@ func registerListScripts(s *server.MCPServer, st *store.Store) {
 	})
 }
 
-func registerUpdateScript(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("update_script",
-		mcp.WithDescription("Update a strategy script's content. Automatically creates a new version. Use update_script_meta for metadata changes."),
-		mcp.WithNumber("id", mcp.Required(), mcp.Description("Script ID to update")),
-		mcp.WithString("content", mcp.Required(), mcp.Description("New script content (full source code)")),
+func registerUpdateStrategy(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("update_strategy",
+		mcp.WithDescription("Update a strategy's content. Automatically creates a new version. Use update_strategy_meta for metadata changes."),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Strategy ID to update")),
+		mcp.WithString("content", mcp.Required(), mcp.Description("New strategy content (full source code)")),
 		mcp.WithString("message", mcp.Description("Version message describing the change (e.g., 'optimize EMA parameters')")),
 	)
 
@@ -177,11 +140,11 @@ func registerUpdateScript(s *server.MCPServer, st *store.Store) {
 	})
 }
 
-func registerUpdateScriptMeta(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("update_script_meta",
-		mcp.WithDescription("Update a script's metadata (name, description, tags, status) without creating a new version."),
-		mcp.WithNumber("id", mcp.Required(), mcp.Description("Script ID to update")),
-		mcp.WithString("name", mcp.Description("New script name")),
+func registerUpdateStrategyMeta(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("update_strategy_meta",
+		mcp.WithDescription("Update a strategy's metadata (name, description, tags, status) without creating a new version."),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Strategy ID to update")),
+		mcp.WithString("name", mcp.Description("New strategy name")),
 		mcp.WithString("description", mcp.Description("New description")),
 		mcp.WithString("tags", mcp.Description("New tags (comma-separated)")),
 		mcp.WithString("status", mcp.Description("New status: active, archived")),
@@ -229,10 +192,10 @@ func registerUpdateScriptMeta(s *server.MCPServer, st *store.Store) {
 	})
 }
 
-func registerDeleteScript(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("delete_script",
-		mcp.WithDescription("Soft-delete a strategy script. The script is marked as 'deleted' but can still be queried if needed. Version history is preserved."),
-		mcp.WithNumber("id", mcp.Required(), mcp.Description("Script ID to delete")),
+func registerDeleteStrategy(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("delete_strategy",
+		mcp.WithDescription("Soft-delete a strategy. The strategy is marked as 'deleted' but can still be queried if needed. Version history is preserved."),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Strategy ID to delete")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

@@ -8,11 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ztrade/ztrade-mcp/store"
+	"github.com/ztrade/ztrade/pkg/ctl"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/viper"
 	"github.com/ztrade/exchange"
-	"github.com/ztrade/ztrade/pkg/ctl"
 )
 
 // tradeManager manages live trading instances
@@ -56,6 +58,34 @@ func registerStartTrade(s *server.MCPServer, cfg *viper.Viper) {
 		param := req.GetString("param", "")
 		recentDaysF := req.GetFloat("recentDays", 0)
 
+		// --- 自动从数据库读取策略并编译为so ---
+		var soPath string
+		var goPath string
+		st := getStoreFromContext(ctx)
+		if st != nil && script != "" && (isLikelyID(script) || isLikelyName(script)) {
+			var s *store.Script
+			var err error
+			if isLikelyID(script) {
+				id, _ := parseID(script)
+				s, err = st.GetScript(id)
+			} else {
+				s, err = st.GetScriptByName(script)
+			}
+			if err != nil {
+				return mcp.NewToolResultError("strategy not found: " + err.Error()), nil
+			}
+			goPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.go", s.Name, s.Version)
+			soPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.so", s.Name, s.Version)
+			if err := writeFile(goPath, s.Content); err != nil {
+				return mcp.NewToolResultError("failed to write temp go file: " + err.Error()), nil
+			}
+			builder := ctl.NewBuilder(goPath, soPath)
+			if err := builder.Build(); err != nil {
+				return mcp.NewToolResultError("build failed: " + err.Error()), nil
+			}
+			script = soPath
+		}
+
 		recentDays := int(recentDaysF)
 		if recentDays <= 0 {
 			recentDays = 1
@@ -79,7 +109,6 @@ func registerStartTrade(s *server.MCPServer, cfg *viper.Viper) {
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to start trade: %s", err.Error())), nil
 		}
-
 		tradeID := fmt.Sprintf("%s_%s_%d", exchangeName, symbol, time.Now().Unix())
 		instance := &tradeInstance{
 			ID:       tradeID,

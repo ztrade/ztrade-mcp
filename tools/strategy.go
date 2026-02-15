@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"text/template"
 
@@ -103,21 +102,26 @@ type mergeData struct {
 
 func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 	tool := mcp.NewTool("create_strategy",
-		mcp.WithDescription("Generate a strategy source code skeleton from a template. Includes standard ztrade strategy interface methods (Param, Init, OnCandle, OnPosition, etc.)."),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Strategy struct name (PascalCase, e.g., 'EmaGoldenCross')")),
+		mcp.WithDescription("Create and save a strategy script to the database. Two modes: "+
+			"1) Provide 'content' directly to save existing source code. "+
+			"2) Omit 'content' to generate a code skeleton from a template with indicators and periods. "+
+			"The script is saved to the database with version tracking."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Strategy name (e.g., 'EmaGoldenCross'). Used as struct name when generating from template.")),
+		mcp.WithString("content", mcp.Description("Full strategy source code (Go code). If provided, saves directly without template generation.")),
 		mcp.WithString("description", mcp.Description("Brief description of the strategy")),
-		mcp.WithString("outputPath", mcp.Required(), mcp.Description("Output file path for the generated .go file")),
+		mcp.WithString("tags", mcp.Description("Comma-separated tags (e.g., 'trend,ema,momentum')")),
 		mcp.WithString("indicators",
-			mcp.Description("Comma-separated indicators to include. "+
+			mcp.Description("(Template mode only) Comma-separated indicators to include. "+
 				"Format: NAME(params). Examples: EMA(9,26), MACD(12,26,9), BOLL(20,2), RSI(14), STOCHRSI(14,14,3,3)")),
 		mcp.WithString("periods",
-			mcp.Description("Comma-separated K-line periods to merge. Examples: 5m,15m,1h")),
+			mcp.Description("(Template mode only) Comma-separated K-line periods to merge. Examples: 5m,15m,1h")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		name := req.GetString("name", "")
+		content := req.GetString("content", "")
 		description := req.GetString("description", "")
-		outputPath := req.GetString("outputPath", "")
+		tags := req.GetString("tags", "")
 		indicators := req.GetString("indicators", "")
 		periods := req.GetString("periods", "")
 
@@ -125,79 +129,73 @@ func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 			description = name + " strategy"
 		}
 
-		data := strategyData{
-			Name:        name,
-			Description: description,
-		}
-
-		// Parse indicators
-		if indicators != "" {
-			for _, ind := range strings.Split(indicators, ",") {
-				ind = strings.TrimSpace(ind)
-				if ind == "" {
-					continue
-				}
-				// Convert "EMA(9,26)" to AddIndicator("EMA", 9, 26)
-				args := parseIndicator(ind)
-				data.Indicators = append(data.Indicators, indicatorData{Args: args})
-			}
-		}
-
-		// Parse merge periods
-		if periods != "" {
-			for _, p := range strings.Split(periods, ",") {
-				p = strings.TrimSpace(p)
-				if p == "" {
-					continue
-				}
-				suffix := strings.ToUpper(strings.Replace(p, "m", "M", 1))
-				suffix = strings.Replace(suffix, "h", "H", 1)
-				suffix = strings.Replace(suffix, "d", "D", 1)
-				data.Merges = append(data.Merges, mergeData{Period: p, Suffix: suffix})
-			}
-		}
-
-		tmpl, err := template.New("strategy").Parse(strategyTemplate)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("template parse error: %s", err.Error())), nil
-		}
-
-		// Render to buffer first so we can save to both file and database
-		var buf bytes.Buffer
-		err = tmpl.Execute(&buf, data)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("template execution error: %s", err.Error())), nil
-		}
-		content := buf.String()
-
-		// Write to file
-		err = os.WriteFile(outputPath, []byte(content), 0644)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to create file: %s", err.Error())), nil
-		}
-
-		result := map[string]interface{}{
-			"status":     "success",
-			"file":       outputPath,
-			"name":       name,
-			"indicators": indicators,
-			"periods":    periods,
-		}
-
-		// Also persist to database so list_scripts can find it
-		if st != nil {
-			script := &store.Script{
+		// Mode 1: content provided directly
+		// Mode 2: generate from template
+		if content == "" {
+			data := strategyData{
 				Name:        name,
-				Content:     content,
 				Description: description,
-				Language:    "go",
 			}
-			if err := st.CreateScript(script); err != nil {
-				result["db_warning"] = fmt.Sprintf("file created but failed to save to database: %s", err.Error())
-			} else {
-				result["script_id"] = script.ID
+
+			// Parse indicators
+			if indicators != "" {
+				for _, ind := range strings.Split(indicators, ",") {
+					ind = strings.TrimSpace(ind)
+					if ind == "" {
+						continue
+					}
+					args := parseIndicator(ind)
+					data.Indicators = append(data.Indicators, indicatorData{Args: args})
+				}
 			}
+
+			// Parse merge periods
+			if periods != "" {
+				for _, p := range strings.Split(periods, ",") {
+					p = strings.TrimSpace(p)
+					if p == "" {
+						continue
+					}
+					suffix := strings.ToUpper(strings.Replace(p, "m", "M", 1))
+					suffix = strings.Replace(suffix, "h", "H", 1)
+					suffix = strings.Replace(suffix, "d", "D", 1)
+					data.Merges = append(data.Merges, mergeData{Period: p, Suffix: suffix})
+				}
+			}
+
+			tmpl, err := template.New("strategy").Parse(strategyTemplate)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("template parse error: %s", err.Error())), nil
+			}
+
+			var buf bytes.Buffer
+			err = tmpl.Execute(&buf, data)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("template execution error: %s", err.Error())), nil
+			}
+			content = buf.String()
 		}
+
+		// Save to database
+		result := map[string]interface{}{
+			"status": "success",
+			"name":   name,
+		}
+		if st == nil {
+			return mcp.NewToolResultError("script store not initialized (check database config)"), nil
+		}
+		script := &store.Script{
+			Name:        name,
+			Content:     content,
+			Description: description,
+			Tags:        tags,
+			Language:    "go",
+		}
+		if err := st.CreateScript(script); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to save script: %s", err.Error())), nil
+		}
+		result["id"] = script.ID
+		result["version"] = script.Version
 
 		resultJSON, _ := json.MarshalIndent(result, "", "  ")
 		return mcp.NewToolResultText(string(resultJSON)), nil
