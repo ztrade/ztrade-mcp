@@ -54,9 +54,16 @@ func registerDownloadKline(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.
 
 			go func() {
 				tm.StartTask(taskID)
-				// Auto mode: estimate 90 days range for progress display
+
+				// 查询本地数据库中该symbol的最新K线时间作为estStart
 				estEnd := time.Now()
 				estStart := estEnd.AddDate(0, -3, 0)
+				if db != nil {
+					latestTime := db.GetKlineTbl(exchange, symbol, binSize).GetNewest()
+					if !latestTime.IsZero() {
+						estStart = latestTime
+					}
+				}
 				doneCh := tm.ProgressEstimator(taskID, "download", estStart, estEnd)
 
 				d := ctl.NewDataDownloadAuto(cfg, db, exchange, symbol, binSize)
