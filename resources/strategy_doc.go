@@ -25,21 +25,19 @@ ztrade 策略参数通过 Param() 方法定义，支持三种类型：
 - FloatParam(key, label, desc, default, &field)
 
 示例：
-```go
+
+
 func (s *MyStrategy) Param() (paramInfo []Param) {
-	paramInfo = []Param{
-		StringParam("mode", "模式", "交易模式", "trend", &s.Mode),
-		IntParam("fast", "快线", "EMA快线周期", 9, &s.Fast),
-		FloatParam("threshold", "阈值", "开仓阈值", 0.01, &s.Threshold),
-	}
-	return
+    paramInfo = []Param{
+        StringParam("mode", "模式", "交易模式", "trend", &s.Mode),
+        IntParam("fast", "快线", "EMA快线周期", 9, &s.Fast),
+        FloatParam("threshold", "阈值", "开仓阈值", 0.01, &s.Threshold),
+    }
+    return
 }
-```
 
 所有参数会自动从 --param 传入的 JSON 解析并绑定到对应字段。
 
-### 示例
-```go
 type MyStrategy struct {
 	engine Engine
 	// 参数字段
@@ -83,7 +81,7 @@ func (s *MyStrategy) OnPosition(pos, price float64) {
 // func (s *MyStrategy) OnTrade(trade *Trade) {}
 // func (s *MyStrategy) OnTradeMarket(trade *Trade) {}
 // func (s *MyStrategy) OnDepth(depth *Depth) {}
-```
+
 
 ## Engine API
 详见 "ztrade://doc/engine"，支持下单、合成K线、添加指标、日志、通知等。
@@ -92,17 +90,13 @@ func (s *MyStrategy) OnPosition(pos, price float64) {
 见 Engine API 文档，支持 EMA/SMA/SSMA/MACD/BOLL/RSI/STOCHRSI 等。
 
 ## 运行方式
-### 1. 插件模式 (.so) — 推荐
-```bash
 ztrade build --script my_strategy.go --output my_strategy.so
 ztrade backtest --script my_strategy.so --exchange binance --symbol BTCUSDT \
   --start "2024-01-01 08:00:00" --end "2024-06-01 08:00:00"
-```
-### 2. 源码模式 (.go) — 需要 ixgo 构建
-```bash
+ 
 ztrade backtest --script my_strategy.go --exchange binance --symbol BTCUSDT \
   --start "2024-01-01 08:00:00" --end "2024-06-01 08:00:00"
-```
+ 
 
 ## 重要说明
 1. 数据基础：回测和实盘数据订阅均以1m为基础

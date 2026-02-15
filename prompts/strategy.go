@@ -45,8 +45,8 @@ func registerStrategyPrompt(s *server.MCPServer) {
 	- OnCandle(candle *Candle)
 	- OnPosition(pos, price float64)
 	- 可选：OnCandle15m/OnTrade/OnTradeMarket/OnDepth
-2. 包名统一为 `package strategy`
-3. 必须使用 `. "github.com/ztrade/trademodel"` 点导入
+2. 包名统一为 "package strategy"
+3. 必须使用 '. "github.com/ztrade/trademodel"' 点导入
 
 ## Engine API（核心接口）
 - OpenLong/CloseLong/OpenShort/CloseShort/StopLong/StopShort/CancelOrder/CancelAllOrder/DoOrder
