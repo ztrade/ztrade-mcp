@@ -10,11 +10,9 @@ import (
 const engineDocContent = `# ztrade Engine API 参考
 
 ## Engine 接口
-
 Engine 是策略与引擎交互的核心接口。在 Init() 中通过参数获取，存储到策略 struct 中供后续使用。
 
 ### 交易操作
-
 | 方法 | 说明 | 返回 |
 |------|------|------|
 | OpenLong(price, amount float64) | 开多仓 | order ID |
@@ -28,36 +26,60 @@ Engine 是策略与引擎交互的核心接口。在 Init() 中通过参数获�
 | DoOrder(typ TradeType, price, amount float64) | 通用下单 | order ID |
 
 ### 状态查询
-
 | 方法 | 说明 |
 |------|------|
 | Position() (pos, price float64) | 获取当前仓位和开仓均价 |
 | Balance() float64 | 获取当前余额 |
+| SetBalance(balance float64) | 设置余额（仅回测有效） |
 
 ### K线合并
-
 | 方法 | 说明 |
 |------|------|
-| Merge(src, dst string, fn CandleFn) | 合并K线周期 |
+| Merge(src, dst string, fn CandleFn) | 合成大周期K线 |
+| RemoveMerge(vmID string) | 移除合成 |
 
 - src: 源周期 (固定为 "1m")
 - dst: 目标周期 ("5m", "15m", "30m", "1h", "4h", "1d" 等)
 - fn: 回调函数 func(candle *Candle)
 
 ### 指标管理
-
 | 方法 | 说明 |
 |------|------|
 | AddIndicator(name string, params ...int) CommonIndicator | 添加技术指标 |
 
 ### 其他
-
 | 方法 | 说明 |
 |------|------|
 | Log(v ...interface{}) | 日志输出 |
 | SendNotify(title, content, contentType string) | 发送通知 |
-| SetBalance(balance float64) | 设置余额（仅回测有效） |
 | UpdateStatus(status int, msg string) | 更新策略状态 |
+| Watch(watchType string) | 添加订阅事件 |
+
+## 内置指标
+| 指标      | 参数                | 示例                              | 说明         |
+|-----------|---------------------|-----------------------------------|--------------|
+| EMA       | 1或2: 单线/交叉     | AddIndicator("EMA", 9, 26)        | 指数均线      |
+| SMA       | 1或2: 单线/交叉     | AddIndicator("SMA", 20)           | 简单均线      |
+| SSMA      | 1或2: 单线/交叉     | AddIndicator("SSMA", 9, 26)       | 平滑均线      |
+| MACD      | 3:快/慢/DEA         | AddIndicator("MACD", 12,26,9)     | MACD         |
+| SMAMACD   | 3:快/慢/DEA         | AddIndicator("SMAMACD",12,26,9)   | SMA版MACD     |
+| BOLL      | 长度、倍数          | AddIndicator("BOLL", 20, 2)       | 布林带        |
+| RSI       | 1或2: 单线/交叉     | AddIndicator("RSI", 14)           | 相对强弱      |
+| STOCHRSI  | 4:窗口/平滑         | AddIndicator("STOCHRSI",14,14,3,3)| 随机RSI       |
+
+### 指标返回值
+CommonIndicator 接口:
+- Result() float64 — 当前值(双线时返回快线值)
+- Indicator() map[string]float64 — 详细值
+
+双线指标 (EMA/SMA/SSMA/RSI 双参数):
+- result, fast, slow — 线值
+- crossUp (1=金叉), crossDown (1=死叉)
+
+BOLL指标:
+- result — 中轨
+- top — 上轨
+- bottom — 下轨
 | Watch(watchType string) | 添加订阅事件 |
 
 ## 内置指标

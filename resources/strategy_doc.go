@@ -9,55 +9,107 @@ import (
 
 const strategyDocContent = `# ztrade 策略开发指南
 
-## 策略结构
+每个策略是一个 Go struct，需实现：
+- NewXxx() *Xxx
+- Param() []Param
+- Init(engine Engine, params ParamData) error
+- OnCandle(candle *Candle)
+- OnPosition(pos, price float64)
+- 可选：OnCandle15m/OnTrade/OnTradeMarket/OnDepth
 
-每个策略是一个 Go struct，需要实现以下方法：
+## 参数定义（Param）
+ztrade 策略参数通过 Param() 方法定义，支持三种类型：
 
-### 必须实现的方法
+- StringParam(key, label, desc, default, &field)
+- IntParam(key, label, desc, default, &field)
+- FloatParam(key, label, desc, default, &field)
 
-#### 构造函数: NewXxx() *Xxx
-` + "```go" + `
-func NewMyStrategy() *MyStrategy {
-	return new(MyStrategy)
-}
-` + "```" + `
-
-#### Param() — 定义参数
-` + "```go" + `
+示例：
+```go
 func (s *MyStrategy) Param() (paramInfo []Param) {
 	paramInfo = []Param{
-		StringParam("key", "标签", "描述", "默认值", &s.field),
-		IntParam("key", "标签", "描述", 10, &s.intField),
-		FloatParam("key", "标签", "描述", 1.0, &s.floatField),
+		StringParam("mode", "模式", "交易模式", "trend", &s.Mode),
+		IntParam("fast", "快线", "EMA快线周期", 9, &s.Fast),
+		FloatParam("threshold", "阈值", "开仓阈值", 0.01, &s.Threshold),
 	}
 	return
 }
-` + "```" + `
+```
 
-#### Init(engine Engine, params ParamData) error — 初始化
-` + "```go" + `
+所有参数会自动从 --param 传入的 JSON 解析并绑定到对应字段。
+
+### 示例
+```go
+type MyStrategy struct {
+	engine Engine
+	// 参数字段
+}
+
+func NewMyStrategy() *MyStrategy {
+	return new(MyStrategy)
+}
+
+func (s *MyStrategy) Param() (paramInfo []Param) {
+	paramInfo = []Param{
+		// StringParam("key", "标签", "描述", "默认值", &s.field),
+		// IntParam("key", "标签", "描述", 10, &s.intField),
+		// FloatParam("key", "标签", "描述", 1.0, &s.floatField),
+	}
+	return
+}
+
 func (s *MyStrategy) Init(engine Engine, params ParamData) (err error) {
 	s.engine = engine
 	// 合并K线
 	engine.Merge("1m", "15m", s.OnCandle15m)
 	// 添加指标
-	s.ema = engine.AddIndicator("EMA", 9, 26)
+	// s.ema = engine.AddIndicator("EMA", 9, 26)
 	return
 }
-` + "```" + `
 
-#### OnCandle(candle *Candle) — 1m K线回调
-- 回测中: candle.ID 是数据库中的 ID
-- 实盘中: candle.ID == -1 表示历史数据
+func (s *MyStrategy) OnCandle(candle *Candle) {
+	// 1m K线回调
+}
 
-#### OnPosition(pos, price float64) — 仓位变化回调
-- pos > 0: 多仓
-- pos < 0: 空仓
-- pos == 0: 空仓位
+func (s *MyStrategy) OnCandle15m(candle *Candle) {
+	// 15m K线回调
+}
 
-### 可选方法
+func (s *MyStrategy) OnPosition(pos, price float64) {
+	// 仓位变化回调
+}
 
-- OnTrade(trade *Trade) — 自己的订单成交回调
+// 可选: 成交/深度等回调
+// func (s *MyStrategy) OnTrade(trade *Trade) {}
+// func (s *MyStrategy) OnTradeMarket(trade *Trade) {}
+// func (s *MyStrategy) OnDepth(depth *Depth) {}
+```
+
+## Engine API
+详见 "ztrade://doc/engine"，支持下单、合成K线、添加指标、日志、通知等。
+
+## 指标用法
+见 Engine API 文档，支持 EMA/SMA/SSMA/MACD/BOLL/RSI/STOCHRSI 等。
+
+## 运行方式
+### 1. 插件模式 (.so) — 推荐
+```bash
+ztrade build --script my_strategy.go --output my_strategy.so
+ztrade backtest --script my_strategy.so --exchange binance --symbol BTCUSDT \
+  --start "2024-01-01 08:00:00" --end "2024-06-01 08:00:00"
+```
+### 2. 源码模式 (.go) — 需要 ixgo 构建
+```bash
+ztrade backtest --script my_strategy.go --exchange binance --symbol BTCUSDT \
+  --start "2024-01-01 08:00:00" --end "2024-06-01 08:00:00"
+```
+
+## 重要说明
+1. 数据基础：回测和实盘数据订阅均以1m为基础
+2. 合成大周期：用 engine.Merge("1m", "15m", cb)
+3. 参数传递：--param 传JSON，自动绑定 Param() 字段
+4. 实盘 candle.ID == -1 表示历史数据，回测为数据库ID
+5. 下单必须用 engine.* 系列方法，仓位跟踪用 OnPosition
 - OnTradeMarket(trade *Trade) — 市场成交回调
 - OnDepth(depth *Depth) — 深度数据回调
 
