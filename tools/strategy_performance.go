@@ -18,8 +18,8 @@ import (
 
 func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *store.Store, tm *TaskManager) {
 	tool := mcp.NewTool("run_backtest_managed",
-		mcp.WithDescription("Run a backtest using a managed script from the database. The script is extracted from DB, backtested, and results are automatically saved for performance tracking. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
-		mcp.WithNumber("scriptId", mcp.Required(), mcp.Description("Script ID in the database")),
+		mcp.WithDescription("Run a backtest using a managed strategy from the database. The strategy is extracted from DB, backtested, and results are automatically saved for performance tracking. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
+		mcp.WithNumber("strategyId", mcp.Required(), mcp.Description("Strategy ID in the database")),
 		mcp.WithString("exchange", mcp.Required(), mcp.Description("Exchange name (e.g., binance)")),
 		mcp.WithString("symbol", mcp.Required(), mcp.Description("Trading pair (e.g., BTCUSDT)")),
 		mcp.WithString("start", mcp.Required(), mcp.Description("Backtest start time in format '2006-01-02 15:04:05'")),
@@ -28,7 +28,7 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 		mcp.WithNumber("fee", mcp.Description("Trading fee rate. Default: 0.0001")),
 		mcp.WithNumber("lever", mcp.Description("Leverage multiplier. Default: 1")),
 		mcp.WithString("param", mcp.Description("Strategy parameters as JSON string")),
-		mcp.WithNumber("version", mcp.Description("Script version to use. Default: latest version.")),
+		mcp.WithNumber("version", mcp.Description("Strategy version to use. Default: latest version.")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -39,7 +39,7 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 			return mcp.NewToolResultError("script store not initialized (check database config)"), nil
 		}
 
-		scriptID := int64(req.GetFloat("scriptId", 0))
+		strategyID := int64(req.GetFloat("strategyId", 0))
 		exchangeName := req.GetString("exchange", "")
 		symbol := req.GetString("symbol", "")
 		startStr := req.GetString("start", "")
@@ -50,8 +50,8 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 		param := req.GetString("param", "")
 		versionF := req.GetFloat("version", 0)
 
-		// Get script from DB
-		script, err := st.GetScript(scriptID)
+		// Get strategy from DB
+		script, err := st.GetScript(strategyID)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to get script: %s", err.Error())), nil
 		}
@@ -60,7 +60,7 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 		scriptContent := script.Content
 		scriptVersion := script.Version
 		if versionF > 0 {
-			ver, err := st.GetVersion(scriptID, int(versionF))
+			ver, err := st.GetVersion(strategyID, int(versionF))
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get version: %s", err.Error())), nil
 			}
@@ -88,7 +88,7 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 		}
 
 		// Write script to temp file for backtesting
-		tmpFile := fmt.Sprintf("/tmp/ztrade_script_%d_v%d.go", scriptID, scriptVersion)
+		tmpFile := fmt.Sprintf("/tmp/ztrade_script_%d_v%d.go", strategyID, scriptVersion)
 		if err := writeFile(tmpFile, scriptContent); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to write temp script: %s", err.Error())), nil
 		}
@@ -126,7 +126,7 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 
 			// Save backtest record
 			record := &store.BacktestRecord{
-				ScriptID: scriptID, ScriptVersion: scriptVersion,
+				ScriptID: strategyID, ScriptVersion: scriptVersion,
 				Exchange: exchangeName, Symbol: symbol,
 				StartTime: start, EndTime: end,
 				InitBalance: balanceF, Fee: feeF, Lever: leverF, Param: param,
@@ -146,8 +146,8 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 			}
 
 			result := map[string]interface{}{
-				"recordId": record.ID, "scriptId": scriptID,
-				"scriptName": script.Name, "scriptVersion": scriptVersion,
+				"recordId": record.ID, "strategyId": strategyID,
+				"strategyName": script.Name, "strategyVersion": scriptVersion,
 				"exchange": exchangeName, "symbol": symbol,
 				"totalActions": resultData.TotalAction, "winRate": resultData.WinRate,
 				"totalProfit": resultData.TotalProfit, "profitPercent": resultData.ProfitPercent,
@@ -164,11 +164,11 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 		// If time range > threshold, run asynchronously
 		if ShouldRunAsync(start, end) {
 			taskID := tm.CreateTask("backtest_managed", map[string]string{
-				"scriptId": fmt.Sprintf("%d", scriptID),
-				"exchange": exchangeName,
-				"symbol":   symbol,
-				"start":    startStr,
-				"end":      endStr,
+				"strategyId": fmt.Sprintf("%d", strategyID),
+				"exchange":   exchangeName,
+				"symbol":     symbol,
+				"start":      startStr,
+				"end":        endStr,
 			})
 
 			go func() {
@@ -210,8 +210,8 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 
 func registerListBacktestRecords(s *server.MCPServer, st *store.Store) {
 	tool := mcp.NewTool("list_backtest_records",
-		mcp.WithDescription("List backtest history for a script. Returns all backtest runs with performance metrics, ordered by most recent first."),
-		mcp.WithNumber("scriptId", mcp.Required(), mcp.Description("Script ID")),
+		mcp.WithDescription("List backtest history for a strategy. Returns all backtest runs with performance metrics, ordered by most recent first."),
+		mcp.WithNumber("strategyId", mcp.Required(), mcp.Description("Strategy ID")),
 		mcp.WithNumber("limit", mcp.Description("Maximum number of records to return. Default: 20")),
 	)
 
@@ -220,13 +220,13 @@ func registerListBacktestRecords(s *server.MCPServer, st *store.Store) {
 			return mcp.NewToolResultError("script store not initialized (check database config)"), nil
 		}
 
-		scriptID := int64(req.GetFloat("scriptId", 0))
+		strategyID := int64(req.GetFloat("strategyId", 0))
 		limit := int(req.GetFloat("limit", 0))
 		if limit <= 0 {
 			limit = 20
 		}
 
-		records, err := st.ListBacktestRecords(scriptID, limit)
+		records, err := st.ListBacktestRecords(strategyID, limit)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to list records: %s", err.Error())), nil
 		}
@@ -267,19 +267,19 @@ func registerListBacktestRecords(s *server.MCPServer, st *store.Store) {
 		}
 
 		result := map[string]interface{}{
-			"scriptId": scriptID,
-			"total":    len(summaries),
-			"records":  summaries,
+			"strategyId": strategyID,
+			"total":      len(summaries),
+			"records":    summaries,
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")
 		return mcp.NewToolResultText(string(data)), nil
 	})
 }
 
-func registerScriptPerformance(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("script_performance",
-		mcp.WithDescription("Get aggregated performance summary for a script across all backtests. Includes best/worst runs, average score, and key metrics ranges."),
-		mcp.WithNumber("scriptId", mcp.Required(), mcp.Description("Script ID")),
+func registerStrategyPerformance(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("strategy_performance",
+		mcp.WithDescription("Get aggregated performance summary for a strategy across all backtests. Includes best/worst runs, average score, and key metrics ranges."),
+		mcp.WithNumber("strategyId", mcp.Required(), mcp.Description("Strategy ID")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -287,21 +287,21 @@ func registerScriptPerformance(s *server.MCPServer, st *store.Store) {
 			return mcp.NewToolResultError("script store not initialized (check database config)"), nil
 		}
 
-		scriptID := int64(req.GetFloat("scriptId", 0))
+		strategyID := int64(req.GetFloat("strategyId", 0))
 
-		// Get script info
-		script, err := st.GetScript(scriptID)
+		// Get strategy info
+		script, err := st.GetScript(strategyID)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to get script: %s", err.Error())), nil
 		}
 
-		summary, err := st.GetBacktestSummary(scriptID)
+		summary, err := st.GetBacktestSummary(strategyID)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to get performance summary: %s", err.Error())), nil
 		}
 
-		summary["scriptId"] = scriptID
-		summary["scriptName"] = script.Name
+		summary["strategyId"] = strategyID
+		summary["strategyName"] = script.Name
 		summary["currentVersion"] = script.Version
 
 		data, _ := json.MarshalIndent(summary, "", "  ")

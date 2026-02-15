@@ -25,24 +25,23 @@ func RegisterAll(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper, st 
 	registerStopTrade(s)
 	registerTradeStatus(s)
 
-	// Script management tools
-	registerSaveScript(s, st)
-	registerGetScript(s, st)
-	registerListScripts(s, st)
-	registerUpdateScript(s, st)
-	registerUpdateScriptMeta(s, st)
-	registerDeleteScript(s, st)
+	// Strategy management tools
+	registerGetStrategy(s, st)
+	registerListStrategies(s, st)
+	registerUpdateStrategy(s, st)
+	registerUpdateStrategyMeta(s, st)
+	registerDeleteStrategy(s, st)
 
-	// Script version management
-	registerListScriptVersions(s, st)
-	registerGetScriptVersion(s, st)
-	registerDiffScriptVersions(s, st)
-	registerRollbackScript(s, st)
+	// Strategy version management
+	registerListStrategyVersions(s, st)
+	registerGetStrategyVersion(s, st)
+	registerDiffStrategyVersions(s, st)
+	registerRollbackStrategy(s, st)
 
-	// Script performance tracking
+	// Strategy performance tracking
 	registerRunBacktestManaged(s, db, st, tm)
 	registerListBacktestRecords(s, st)
-	registerScriptPerformance(s, st)
+	registerStrategyPerformance(s, st)
 
 	// Async task management tools
 	registerGetTaskStatus(s, tm)

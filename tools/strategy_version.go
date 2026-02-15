@@ -11,10 +11,10 @@ import (
 	"github.com/ztrade/ztrade-mcp/store"
 )
 
-func registerListScriptVersions(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("list_script_versions",
-		mcp.WithDescription("List all versions of a strategy script. Returns version number, change message, and creation time for each version."),
-		mcp.WithNumber("id", mcp.Required(), mcp.Description("Script ID")),
+func registerListStrategyVersions(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("list_strategy_versions",
+		mcp.WithDescription("List all versions of a strategy. Returns version number, change message, and creation time for each version."),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Strategy ID")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -62,10 +62,10 @@ func registerListScriptVersions(s *server.MCPServer, st *store.Store) {
 	})
 }
 
-func registerGetScriptVersion(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("get_script_version",
-		mcp.WithDescription("Get the full content of a specific version of a script. Useful for reviewing or comparing historical versions."),
-		mcp.WithNumber("id", mcp.Required(), mcp.Description("Script ID")),
+func registerGetStrategyVersion(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("get_strategy_version",
+		mcp.WithDescription("Get the full content of a specific version of a strategy. Useful for reviewing or comparing historical versions."),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Strategy ID")),
 		mcp.WithNumber("version", mcp.Required(), mcp.Description("Version number to retrieve")),
 	)
 
@@ -94,10 +94,10 @@ func registerGetScriptVersion(s *server.MCPServer, st *store.Store) {
 	})
 }
 
-func registerDiffScriptVersions(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("diff_script_versions",
-		mcp.WithDescription("Compare two versions of a script by showing both versions' content side by side. Use this to review changes between versions."),
-		mcp.WithNumber("id", mcp.Required(), mcp.Description("Script ID")),
+func registerDiffStrategyVersions(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("diff_strategy_versions",
+		mcp.WithDescription("Compare two versions of a strategy by showing both versions' content side by side. Use this to review changes between versions."),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Strategy ID")),
 		mcp.WithNumber("version1", mcp.Required(), mcp.Description("First (older) version number")),
 		mcp.WithNumber("version2", mcp.Required(), mcp.Description("Second (newer) version number")),
 	)
@@ -166,10 +166,10 @@ func registerDiffScriptVersions(s *server.MCPServer, st *store.Store) {
 	})
 }
 
-func registerRollbackScript(s *server.MCPServer, st *store.Store) {
-	tool := mcp.NewTool("rollback_script",
-		mcp.WithDescription("Rollback a strategy script to a previous version. Creates a new version with the rolled-back content."),
-		mcp.WithNumber("id", mcp.Required(), mcp.Description("Script ID")),
+func registerRollbackStrategy(s *server.MCPServer, st *store.Store) {
+	tool := mcp.NewTool("rollback_strategy",
+		mcp.WithDescription("Rollback a strategy to a previous version. Creates a new version with the rolled-back content."),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("Strategy ID")),
 		mcp.WithNumber("version", mcp.Required(), mcp.Description("Target version to rollback to")),
 	)
 
