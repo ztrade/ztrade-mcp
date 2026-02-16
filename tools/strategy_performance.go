@@ -107,7 +107,9 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 				return nil, fmt.Errorf("failed to create backtest: %s", err.Error())
 			}
 
-			bt.SetScript(tmpFile)
+			// In default (non-ixgo) builds, GoEngine only supports plugin files (.so/.dll/.dylib).
+			// Use the compiled plugin instead of the temporary .go source file.
+			bt.SetScript(soFile)
 			bt.SetBalanceInit(balanceF, feeF)
 			bt.SetLever(leverF)
 

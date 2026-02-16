@@ -86,6 +86,11 @@ func registerStartTrade(s *server.MCPServer, cfg *viper.Viper) {
 			script = soPath
 		}
 
+		script, err := ensurePluginScript(script)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
 		recentDays := int(recentDaysF)
 		if recentDays <= 0 {
 			recentDays = 1

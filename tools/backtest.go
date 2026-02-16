@@ -134,6 +134,11 @@ func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, tm *TaskManag
 			script = soPath
 		}
 
+		script, err := ensurePluginScript(script)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
 		start, err := time.Parse("2006-01-02 15:04:05", startStr)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("invalid start time: %s", err.Error())), nil
