@@ -17,7 +17,13 @@ import (
 )
 
 // runBacktestCore executes the actual backtest logic and returns the result map or error.
-func runBacktestCore(db *dbstore.DBStore, script, exchangeName, symbol, param string, start, end time.Time, balanceF, feeF, leverF float64) (map[string]interface{}, error) {
+func runBacktestCore(db *dbstore.DBStore, script, exchangeName, symbol, param string, start, end time.Time, balanceF, feeF, leverF float64) (result map[string]interface{}, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in backtest: %v", r)
+			result = nil
+		}
+	}()
 	bt, err := ctl.NewBacktest(db, exchangeName, symbol, param, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create backtest: %s", err.Error())
@@ -48,7 +54,7 @@ func runBacktestCore(db *dbstore.DBStore, script, exchangeName, symbol, param st
 		return nil, fmt.Errorf("unexpected result type")
 	}
 
-	result := map[string]interface{}{
+	result = map[string]interface{}{
 		"totalActions":     resultData.TotalAction,
 		"winRate":          resultData.WinRate,
 		"totalProfit":      resultData.TotalProfit,
