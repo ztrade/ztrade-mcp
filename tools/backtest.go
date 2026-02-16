@@ -53,6 +53,9 @@ func runBacktestCore(db *dbstore.DBStore, script, exchangeName, symbol, param st
 	if !ok {
 		return nil, fmt.Errorf("unexpected result type")
 	}
+	if fields := sanitizeBacktestMetrics(&resultData); len(fields) > 0 {
+		log.WithField("fields", fields).Warn("sanitized non-finite backtest metrics")
+	}
 
 	result = map[string]interface{}{
 		"totalActions":     resultData.TotalAction,

@@ -270,6 +270,12 @@ func (s *Store) DiffVersions(scriptID int64, v1, v2 int) (*ScriptVersion, *Scrip
 
 // SaveBacktestRecord saves a backtest result.
 func (s *Store) SaveBacktestRecord(record *BacktestRecord) error {
+	if record == nil {
+		return fmt.Errorf("backtest record is nil")
+	}
+	if fields := sanitizeBacktestRecordForInsert(record); len(fields) > 0 {
+		log.WithField("fields", fields).Warn("sanitized non-finite backtest record fields")
+	}
 	_, err := s.engine.Insert(record)
 	return err
 }

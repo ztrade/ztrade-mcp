@@ -10,7 +10,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/ztrade/exchange v0.1.0
 	github.com/ztrade/trademodel v1.1.8
-	github.com/ztrade/ztrade v0.4.1
+	github.com/ztrade/ztrade v0.4.2
 	xorm.io/xorm v1.3.11
 )
 
@@ -132,9 +132,9 @@ require (
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yosssi/ace v0.0.5 // indirect
-	github.com/ztrade/base v0.2.5 // indirect
+	github.com/ztrade/base v0.2.6 // indirect
 	github.com/ztrade/ctp v0.0.4 // indirect
-	github.com/ztrade/indicator v1.1.7 // indirect
+	github.com/ztrade/indicator v1.1.8 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.24.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect

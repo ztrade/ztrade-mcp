@@ -138,6 +138,9 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 			if !ok {
 				return nil, fmt.Errorf("unexpected result type")
 			}
+			if fields := sanitizeBacktestMetrics(&resultData); len(fields) > 0 {
+				log.WithField("fields", fields).Warn("sanitized non-finite backtest metrics")
+			}
 
 			// Save backtest record
 			record := &store.BacktestRecord{
