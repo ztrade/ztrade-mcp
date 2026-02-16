@@ -91,7 +91,7 @@ go build -o ztrade-mcp .
 | start | string | ✅ | 回测开始时间 |
 | end | string | ✅ | 回测结束时间 |
 | balance | number | | 初始资金，默认 100000 |
-| fee | number | | 手续费率，默认 0.0001 |
+| fee | number | | 手续费率，默认 0.0005 |
 | lever | number | | 杠杆倍数，默认 1 |
 | param | string | | 策略参数 JSON |
 

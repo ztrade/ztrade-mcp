@@ -25,7 +25,7 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 		mcp.WithString("start", mcp.Required(), mcp.Description("Backtest start time in format '2006-01-02 15:04:05'")),
 		mcp.WithString("end", mcp.Required(), mcp.Description("Backtest end time in format '2006-01-02 15:04:05'")),
 		mcp.WithNumber("balance", mcp.Description("Initial balance. Default: 100000")),
-		mcp.WithNumber("fee", mcp.Description("Trading fee rate. Default: 0.0001")),
+		mcp.WithNumber("fee", mcp.Description("Trading fee rate. Default: 0.0005")),
 		mcp.WithNumber("lever", mcp.Description("Leverage multiplier. Default: 1")),
 		mcp.WithString("param", mcp.Description("Strategy parameters as JSON string")),
 		mcp.WithNumber("version", mcp.Description("Strategy version to use. Default: latest version.")),
@@ -81,7 +81,7 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 			balanceF = 100000
 		}
 		if feeF <= 0 {
-			feeF = 0.0001
+			feeF = 0.0005
 		}
 		if leverF <= 0 {
 			leverF = 1

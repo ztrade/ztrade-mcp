@@ -408,7 +408,7 @@ mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 | start | string | 是 | - | 回测开始时间 |
 | end | string | 是 | - | 回测结束时间 |
 | balance | float | 否 | 100000 | 初始资金 |
-| fee | float | 否 | 0.0001 | 手续费率 |
+| fee | float | 否 | 0.0005 | 手续费率 |
 | lever | float | 否 | 1 | 杠杆倍数 |
 | param | string | 否 | "" | 策略参数 JSON |
 
