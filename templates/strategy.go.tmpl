@@ -1,0 +1,49 @@
+package strategy
+
+import (
+	. "github.com/ztrade/trademodel"
+)
+
+type MyStrategy struct {
+	engine Engine
+	// 参数字段
+}
+
+func NewMyStrategy() *MyStrategy {
+	return new(MyStrategy)
+}
+
+func (s *MyStrategy) Param() (paramInfo []Param) {
+	paramInfo = []Param{
+		// StringParam("key", "标签", "描述", "默认值", &s.field),
+		// IntParam("key", "标签", "描述", 10, &s.intField),
+		// FloatParam("key", "标签", "描述", 1.0, &s.floatField),
+	}
+	return
+}
+
+func (s *MyStrategy) Init(engine Engine, params ParamData) (err error) {
+	s.engine = engine
+	// 合并K线
+	engine.Merge("1m", "15m", s.OnCandle15m)
+	// 添加指标
+	// s.ema = engine.AddIndicator("EMA", 9, 26)
+	return
+}
+
+func (s *MyStrategy) OnCandle(candle *Candle) {
+	// 1m K线回调
+}
+
+func (s *MyStrategy) OnCandle15m(candle *Candle) {
+	// 15m K线回调
+}
+
+func (s *MyStrategy) OnPosition(pos, price float64) {
+	// 仓位变化回调
+}
+
+// 可选: 成交/深度等回调
+// func (s *MyStrategy) OnTrade(trade *Trade) {}
+// func (s *MyStrategy) OnTradeMarket(trade *Trade) {}
+// func (s *MyStrategy) OnDepth(depth *Depth) {}
