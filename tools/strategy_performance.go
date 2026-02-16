@@ -101,7 +101,13 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 		}
 
 		// runManagedBacktest is the core logic shared by sync and async paths
-		runManagedBacktest := func() (map[string]interface{}, error) {
+		runManagedBacktest := func() (ret map[string]interface{}, err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("panic in backtest: %v", r)
+					ret = nil
+				}
+			}()
 			bt, err := ctl.NewBacktest(db, exchangeName, symbol, param, start, end)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create backtest: %s", err.Error())
