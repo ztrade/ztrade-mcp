@@ -41,6 +41,7 @@ func RegisterAll(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper, st 
 	// Strategy performance tracking
 	registerRunBacktestManaged(s, db, st, tm)
 	registerListBacktestRecords(s, st)
+	registerGetBacktestLogs(s, st)
 	registerStrategyPerformance(s, st)
 
 	// Async task management tools

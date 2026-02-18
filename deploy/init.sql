@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS mcp_scripts (
     language VARCHAR(20) DEFAULT 'go',
     tags VARCHAR(500) DEFAULT '',
     status VARCHAR(20) DEFAULT 'active',
+    lifecycle_status VARCHAR(20) DEFAULT 'research',
+    field_descriptions TEXT DEFAULT NULL,
     version INT DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -67,4 +69,15 @@ CREATE TABLE IF NOT EXISTS mcp_backtest_records (
     INDEX idx_script_id (script_id),
     INDEX idx_script_version (script_id, script_version),
     INDEX idx_overall_score (overall_score)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Backtest logs (captured engine.Log output)
+CREATE TABLE IF NOT EXISTS mcp_backtest_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    record_id BIGINT NOT NULL,
+    line_no INT NOT NULL,
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_record_id (record_id),
+    INDEX idx_record_line (record_id, line_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

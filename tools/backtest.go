@@ -39,9 +39,16 @@ func runBacktestCore(db *dbstore.DBStore, script, exchangeName, symbol, param st
 	rpt.SetLever(leverF)
 	bt.SetReporter(rpt)
 
-	err = bt.Run()
+	err = suppressStdout(func() error {
+		return bt.Run()
+	})
 	if err != nil {
 		return nil, fmt.Errorf("backtest failed: %s", err.Error())
+	}
+
+	logs, logsTruncated := truncateLinesByBytes(bt.GetLog(), maxBacktestLogBytes)
+	if logsTruncated {
+		log.WithField("limitBytes", maxBacktestLogBytes).Warn("backtest logs were truncated")
 	}
 
 	rawResult, err := bt.Result()
@@ -58,6 +65,9 @@ func runBacktestCore(db *dbstore.DBStore, script, exchangeName, symbol, param st
 	}
 
 	result = map[string]interface{}{
+		"logs":             logs,
+		"logsTruncated":    logsTruncated,
+		"param":            param,
 		"totalActions":     resultData.TotalAction,
 		"winRate":          resultData.WinRate,
 		"totalProfit":      resultData.TotalProfit,
@@ -84,7 +94,7 @@ func runBacktestCore(db *dbstore.DBStore, script, exchangeName, symbol, param st
 
 func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, tm *TaskManager) {
 	tool := mcp.NewTool("run_backtest",
-		mcp.WithDescription("Run a backtest with a strategy script on historical data. Returns structured results including profit, win rate, sharpe ratio, max drawdown, etc. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
+		mcp.WithDescription("Run a backtest with a strategy script on historical data. Returns structured results including profit, win rate, sharpe ratio, max drawdown, etc. Captures engine.Log output as 'logs' in the response. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
 		mcp.WithString("script", mcp.Required(), mcp.Description("Strategy file path (.go or .so)")),
 		mcp.WithString("exchange", mcp.Required(), mcp.Description("Exchange name (e.g., binance)")),
 		mcp.WithString("symbol", mcp.Required(), mcp.Description("Trading pair (e.g., BTCUSDT)")),
@@ -93,7 +103,7 @@ func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, tm *TaskManag
 		mcp.WithNumber("balance", mcp.Description("Initial balance. Default: 100000")),
 		mcp.WithNumber("fee", mcp.Description("Trading fee rate. Default: 0.0005")),
 		mcp.WithNumber("lever", mcp.Description("Leverage multiplier. Default: 1")),
-		mcp.WithString("param", mcp.Description("Strategy parameters as JSON string")),
+		mcp.WithString("param", mcp.Description("Strategy parameters as JSON string, passed to strategy Param/Init parser")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

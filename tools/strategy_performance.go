@@ -18,7 +18,7 @@ import (
 
 func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *store.Store, tm *TaskManager) {
 	tool := mcp.NewTool("run_backtest_managed",
-		mcp.WithDescription("Run a backtest using a managed strategy from the database. The strategy is extracted from DB, backtested, and results are automatically saved for performance tracking. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
+		mcp.WithDescription("Run a backtest using a managed strategy from the database. The strategy is extracted from DB, backtested, and results are automatically saved for performance tracking. Captured engine.Log output is stored and can be queried via get_backtest_logs. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
 		mcp.WithNumber("strategyId", mcp.Required(), mcp.Description("Strategy ID in the database")),
 		mcp.WithString("exchange", mcp.Required(), mcp.Description("Exchange name (e.g., binance)")),
 		mcp.WithString("symbol", mcp.Required(), mcp.Description("Trading pair (e.g., BTCUSDT)")),
@@ -27,7 +27,7 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 		mcp.WithNumber("balance", mcp.Description("Initial balance. Default: 100000")),
 		mcp.WithNumber("fee", mcp.Description("Trading fee rate. Default: 0.0005")),
 		mcp.WithNumber("lever", mcp.Description("Leverage multiplier. Default: 1")),
-		mcp.WithString("param", mcp.Description("Strategy parameters as JSON string")),
+		mcp.WithString("param", mcp.Description("Strategy parameters as JSON string, passed to strategy Param/Init parser")),
 		mcp.WithNumber("version", mcp.Description("Strategy version to use. Default: latest version.")),
 	)
 
@@ -125,8 +125,16 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 			rpt.SetLever(leverF)
 			bt.SetReporter(rpt)
 
-			if err := bt.Run(); err != nil {
+			err = suppressStdout(func() error {
+				return bt.Run()
+			})
+			if err != nil {
 				return nil, fmt.Errorf("backtest failed: %s", err.Error())
+			}
+
+			logs, logsTruncated := truncateLinesByBytes(bt.GetLog(), maxBacktestLogBytes)
+			if logsTruncated {
+				log.WithField("limitBytes", maxBacktestLogBytes).Warn("backtest logs were truncated")
 			}
 
 			rawResult, err := bt.Result()
@@ -162,9 +170,14 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 			if saveErr := st.SaveBacktestRecord(record); saveErr != nil {
 				log.Warnf("backtest completed but failed to save record: %s", saveErr.Error())
 			}
+			if record.ID > 0 && len(logs) > 0 {
+				if logErr := st.SaveBacktestLogs(record.ID, logs); logErr != nil {
+					log.Warnf("backtest record %d saved but failed to save logs: %s", record.ID, logErr.Error())
+				}
+			}
 
 			result := map[string]interface{}{
-				"recordId": record.ID, "strategyId": strategyID,
+				"recordId": record.ID, "strategyId": strategyID, "param": param, "logLines": len(logs), "logsTruncated": logsTruncated,
 				"strategyName": script.Name, "strategyVersion": scriptVersion,
 				"exchange": exchangeName, "symbol": symbol,
 				"totalActions": resultData.TotalAction, "winRate": resultData.WinRate,

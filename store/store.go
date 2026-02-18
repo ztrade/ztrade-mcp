@@ -12,16 +12,18 @@ import (
 
 // Script represents a strategy script stored in the database.
 type Script struct {
-	ID          int64     `xorm:"pk autoincr" json:"id"`
-	Name        string    `xorm:"varchar(100) notnull unique" json:"name"`
-	Description string    `xorm:"varchar(500)" json:"description"`
-	Content     string    `xorm:"longtext notnull" json:"content"`
-	Language    string    `xorm:"varchar(20) default('go')" json:"language"`
-	Tags        string    `xorm:"varchar(500)" json:"tags"`
-	Status      string    `xorm:"varchar(20) default('active')" json:"status"` // active, archived, deleted
-	Version     int       `xorm:"default(1)" json:"version"`
-	CreatedAt   time.Time `xorm:"created" json:"createdAt"`
-	UpdatedAt   time.Time `xorm:"updated" json:"updatedAt"`
+	ID                int64     `xorm:"pk autoincr" json:"id"`
+	Name              string    `xorm:"varchar(100) notnull unique" json:"name"`
+	Description       string    `xorm:"varchar(500)" json:"description"`
+	Content           string    `xorm:"longtext notnull" json:"content"`
+	Language          string    `xorm:"varchar(20) default('go')" json:"language"`
+	Tags              string    `xorm:"varchar(500)" json:"tags"`
+	Status            string    `xorm:"varchar(20) default('active')" json:"status"` // active, archived, deleted
+	LifecycleStatus   string    `xorm:"varchar(20) default('research')" json:"lifecycleStatus"`
+	FieldDescriptions string    `xorm:"text" json:"fieldDescriptions"`
+	Version           int       `xorm:"default(1)" json:"version"`
+	CreatedAt         time.Time `xorm:"created" json:"createdAt"`
+	UpdatedAt         time.Time `xorm:"updated" json:"updatedAt"`
 }
 
 func (Script) TableName() string {
@@ -82,6 +84,19 @@ func (BacktestRecord) TableName() string {
 	return "mcp_backtest_records"
 }
 
+// BacktestLog represents a line of captured engine.Log output from a backtest run.
+type BacktestLog struct {
+	ID        int64     `xorm:"pk autoincr" json:"id"`
+	RecordID  int64     `xorm:"notnull index" json:"recordId"`
+	LineNo    int       `xorm:"notnull" json:"lineNo"`
+	Content   string    `xorm:"text notnull" json:"content"`
+	CreatedAt time.Time `xorm:"created" json:"createdAt"`
+}
+
+func (BacktestLog) TableName() string {
+	return "mcp_backtest_logs"
+}
+
 // Store provides database operations for script management.
 type Store struct {
 	engine *xorm.Engine
@@ -101,7 +116,7 @@ func NewStore(cfg *viper.Viper) (*Store, error) {
 	}
 
 	// Auto-sync tables
-	if err := engine.Sync2(new(Script), new(ScriptVersion), new(BacktestRecord)); err != nil {
+	if err := engine.Sync2(new(Script), new(ScriptVersion), new(BacktestRecord), new(BacktestLog)); err != nil {
 		return nil, fmt.Errorf("failed to sync tables: %w", err)
 	}
 
@@ -118,8 +133,17 @@ func (s *Store) Close() error {
 
 // CreateScript creates a new script and saves its initial version.
 func (s *Store) CreateScript(script *Script) error {
+	if script == nil {
+		return fmt.Errorf("script is nil")
+	}
 	script.Version = 1
 	script.Status = "active"
+	if script.LifecycleStatus == "" {
+		script.LifecycleStatus = StrategyLifecycleResearch
+	}
+	if !IsValidStrategyLifecycleStatus(script.LifecycleStatus) {
+		return fmt.Errorf("invalid lifecycleStatus %s", script.LifecycleStatus)
+	}
 	_, err := s.engine.Insert(script)
 	if err != nil {
 		return err
@@ -162,7 +186,7 @@ func (s *Store) GetScriptByName(name string) (*Script, error) {
 }
 
 // ListScripts lists scripts with optional filters.
-func (s *Store) ListScripts(status, keyword string) ([]Script, error) {
+func (s *Store) ListScripts(status, lifecycleStatus, keyword string) ([]Script, error) {
 	var scripts []Script
 	sess := s.engine.NewSession()
 	defer sess.Close()
@@ -171,6 +195,12 @@ func (s *Store) ListScripts(status, keyword string) ([]Script, error) {
 		sess = sess.Where("status = ?", status)
 	} else {
 		sess = sess.Where("status != ?", "deleted")
+	}
+	if lifecycleStatus != "" {
+		if !IsValidStrategyLifecycleStatus(lifecycleStatus) {
+			return nil, fmt.Errorf("invalid lifecycleStatus %s", lifecycleStatus)
+		}
+		sess = sess.Where("lifecycle_status = ?", lifecycleStatus)
 	}
 	if keyword != "" {
 		like := "%" + keyword + "%"
@@ -185,6 +215,9 @@ func (s *Store) UpdateScript(id int64, content, message string) (*Script, error)
 	script, err := s.GetScript(id)
 	if err != nil {
 		return nil, err
+	}
+	if IsStrategyLockedForEdit(script.LifecycleStatus) {
+		return nil, fmt.Errorf("strategy is stable and locked for edit; set lifecycleStatus to %s/%s/%s before modifying", StrategyLifecycleResearch, StrategyLifecycleDevelopment, StrategyLifecycleTesting)
 	}
 
 	script.Version++
@@ -212,7 +245,40 @@ func (s *Store) UpdateScript(id int64, content, message string) (*Script, error)
 
 // UpdateScriptMeta updates script metadata (name, description, tags, status).
 func (s *Store) UpdateScriptMeta(id int64, fields map[string]interface{}) error {
-	_, err := s.engine.Table(new(Script)).ID(id).Update(fields)
+	if len(fields) == 0 {
+		return nil
+	}
+	if v, ok := fields["lifecycle_status"]; ok {
+		ls, ok := v.(string)
+		if !ok {
+			return fmt.Errorf("lifecycle_status must be string")
+		}
+		if ls == "" || !IsValidStrategyLifecycleStatus(ls) {
+			return fmt.Errorf("invalid lifecycleStatus %s", ls)
+		}
+	}
+	if v, ok := fields["field_descriptions"]; ok {
+		if _, ok := v.(string); !ok {
+			return fmt.Errorf("field_descriptions must be string")
+		}
+	}
+
+	script, err := s.GetScript(id)
+	if err != nil {
+		return err
+	}
+	if IsStrategyLockedForEdit(script.LifecycleStatus) {
+		nextLifecycle, has := fields["lifecycle_status"]
+		if !has || len(fields) != 1 {
+			return fmt.Errorf("strategy is stable and locked for edit; set lifecycleStatus to %s/%s/%s before modifying other fields", StrategyLifecycleResearch, StrategyLifecycleDevelopment, StrategyLifecycleTesting)
+		}
+		ls, ok := nextLifecycle.(string)
+		if !ok || ls == StrategyLifecycleStable {
+			return fmt.Errorf("strategy is stable and locked for edit; set lifecycleStatus to %s/%s/%s before modifying other fields", StrategyLifecycleResearch, StrategyLifecycleDevelopment, StrategyLifecycleTesting)
+		}
+	}
+
+	_, err = s.engine.Table(new(Script)).ID(id).Update(fields)
 	return err
 }
 

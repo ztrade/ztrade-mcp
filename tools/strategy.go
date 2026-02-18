@@ -110,6 +110,8 @@ func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 		mcp.WithString("content", mcp.Description("Full strategy source code (Go code). If provided, saves directly without template generation.")),
 		mcp.WithString("description", mcp.Description("Brief description of the strategy")),
 		mcp.WithString("tags", mcp.Description("Comma-separated tags (e.g., 'trend,ema,momentum')")),
+		mcp.WithString("lifecycleStatus", mcp.Description("Lifecycle status: research, development, testing, stable. Default: research")),
+		mcp.WithString("fieldDescriptions", mcp.Description("Detailed field-level descriptions. Suggested JSON object keyed by field/param name.")),
 		mcp.WithString("indicators",
 			mcp.Description("(Template mode only) Comma-separated indicators to include. "+
 				"Format: NAME(params). Examples: EMA(9,26), MACD(12,26,9), BOLL(20,2), RSI(14), STOCHRSI(14,14,3,3)")),
@@ -122,6 +124,8 @@ func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 		content := req.GetString("content", "")
 		description := req.GetString("description", "")
 		tags := req.GetString("tags", "")
+		lifecycleStatus := req.GetString("lifecycleStatus", "")
+		fieldDescriptions := req.GetString("fieldDescriptions", "")
 		indicators := req.GetString("indicators", "")
 		periods := req.GetString("periods", "")
 
@@ -185,11 +189,13 @@ func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 			return mcp.NewToolResultError("script store not initialized (check database config)"), nil
 		}
 		script := &store.Script{
-			Name:        name,
-			Content:     content,
-			Description: description,
-			Tags:        tags,
-			Language:    "go",
+			Name:              name,
+			Content:           content,
+			Description:       description,
+			Tags:              tags,
+			Language:          "go",
+			LifecycleStatus:   lifecycleStatus,
+			FieldDescriptions: fieldDescriptions,
 		}
 		if err := st.CreateScript(script); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to save script: %s", err.Error())), nil

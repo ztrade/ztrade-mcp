@@ -49,6 +49,7 @@ func registerListStrategies(s *server.MCPServer, st *store.Store) {
 	tool := mcp.NewTool("list_strategies",
 		mcp.WithDescription("List all strategies in the database with optional filters. Returns strategy metadata (without full content for brevity)."),
 		mcp.WithString("status", mcp.Description("Filter by status: active, archived, deleted. Default: show all non-deleted.")),
+		mcp.WithString("lifecycleStatus", mcp.Description("Filter by lifecycle status: research, development, testing, stable.")),
 		mcp.WithString("keyword", mcp.Description("Search keyword to filter by name, description, or tags.")),
 	)
 
@@ -58,38 +59,41 @@ func registerListStrategies(s *server.MCPServer, st *store.Store) {
 		}
 
 		status := req.GetString("status", "")
+		lifecycleStatus := req.GetString("lifecycleStatus", "")
 		keyword := req.GetString("keyword", "")
 
-		scripts, err := st.ListScripts(status, keyword)
+		scripts, err := st.ListScripts(status, lifecycleStatus, keyword)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to list scripts: %s", err.Error())), nil
 		}
 
 		// Return metadata only (omit full content for brevity)
 		type scriptSummary struct {
-			ID          int64  `json:"id"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			Tags        string `json:"tags"`
-			Status      string `json:"status"`
-			Version     int    `json:"version"`
-			Language    string `json:"language"`
-			CreatedAt   string `json:"createdAt"`
-			UpdatedAt   string `json:"updatedAt"`
+			ID              int64  `json:"id"`
+			Name            string `json:"name"`
+			Description     string `json:"description"`
+			Tags            string `json:"tags"`
+			Status          string `json:"status"`
+			LifecycleStatus string `json:"lifecycleStatus"`
+			Version         int    `json:"version"`
+			Language        string `json:"language"`
+			CreatedAt       string `json:"createdAt"`
+			UpdatedAt       string `json:"updatedAt"`
 		}
 
 		var summaries []scriptSummary
 		for _, sc := range scripts {
 			summaries = append(summaries, scriptSummary{
-				ID:          sc.ID,
-				Name:        sc.Name,
-				Description: sc.Description,
-				Tags:        sc.Tags,
-				Status:      sc.Status,
-				Version:     sc.Version,
-				Language:    sc.Language,
-				CreatedAt:   sc.CreatedAt.Format("2006-01-02 15:04:05"),
-				UpdatedAt:   sc.UpdatedAt.Format("2006-01-02 15:04:05"),
+				ID:              sc.ID,
+				Name:            sc.Name,
+				Description:     sc.Description,
+				Tags:            sc.Tags,
+				Status:          sc.Status,
+				LifecycleStatus: sc.LifecycleStatus,
+				Version:         sc.Version,
+				Language:        sc.Language,
+				CreatedAt:       sc.CreatedAt.Format("2006-01-02 15:04:05"),
+				UpdatedAt:       sc.UpdatedAt.Format("2006-01-02 15:04:05"),
 			})
 		}
 
@@ -142,12 +146,14 @@ func registerUpdateStrategy(s *server.MCPServer, st *store.Store) {
 
 func registerUpdateStrategyMeta(s *server.MCPServer, st *store.Store) {
 	tool := mcp.NewTool("update_strategy_meta",
-		mcp.WithDescription("Update a strategy's metadata (name, description, tags, status) without creating a new version."),
+		mcp.WithDescription("Update a strategy's metadata (name, description, tags, status, lifecycleStatus, fieldDescriptions) without creating a new version. If a strategy is in lifecycleStatus=stable, you must first change lifecycleStatus to research/development/testing before editing other fields."),
 		mcp.WithNumber("id", mcp.Required(), mcp.Description("Strategy ID to update")),
 		mcp.WithString("name", mcp.Description("New strategy name")),
 		mcp.WithString("description", mcp.Description("New description")),
 		mcp.WithString("tags", mcp.Description("New tags (comma-separated)")),
 		mcp.WithString("status", mcp.Description("New status: active, archived")),
+		mcp.WithString("lifecycleStatus", mcp.Description("Lifecycle status: research, development, testing, stable")),
+		mcp.WithString("fieldDescriptions", mcp.Description("Detailed field-level descriptions for the strategy. Recommended format: JSON object keyed by field/param name.")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -156,6 +162,10 @@ func registerUpdateStrategyMeta(s *server.MCPServer, st *store.Store) {
 		}
 
 		id := int64(req.GetFloat("id", 0))
+		script, err := st.GetScript(id)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get script: %s", err.Error())), nil
+		}
 
 		fields := make(map[string]interface{})
 		if name := req.GetString("name", ""); name != "" {
@@ -173,9 +183,30 @@ func registerUpdateStrategyMeta(s *server.MCPServer, st *store.Store) {
 			}
 			fields["status"] = status
 		}
+		if lifecycleStatus := req.GetString("lifecycleStatus", ""); lifecycleStatus != "" {
+			if !store.IsValidStrategyLifecycleStatus(lifecycleStatus) {
+				return mcp.NewToolResultError("lifecycleStatus must be one of: research, development, testing, stable"), nil
+			}
+			fields["lifecycle_status"] = lifecycleStatus
+		}
+		if fieldDescriptions := req.GetString("fieldDescriptions", ""); fieldDescriptions != "" {
+			fields["field_descriptions"] = fieldDescriptions
+		}
 
 		if len(fields) == 0 {
 			return mcp.NewToolResultError("at least one field must be provided to update"), nil
+		}
+
+		// If strategy is stable, require lifecycle unlock first
+		if store.IsStrategyLockedForEdit(script.LifecycleStatus) {
+			nextLifecycle, hasLifecycle := fields["lifecycle_status"]
+			if !hasLifecycle || len(fields) != 1 {
+				return mcp.NewToolResultError("strategy is stable; update lifecycleStatus first (research/development/testing)"), nil
+			}
+			ls, ok := nextLifecycle.(string)
+			if !ok || ls == store.StrategyLifecycleStable {
+				return mcp.NewToolResultError("strategy is stable; set lifecycleStatus to research/development/testing before other edits"), nil
+			}
 		}
 
 		if err := st.UpdateScriptMeta(id, fields); err != nil {
