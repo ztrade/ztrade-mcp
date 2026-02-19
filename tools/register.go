@@ -16,6 +16,7 @@ func RegisterAll(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper, st 
 	registerListExchanges(s, cfg)
 	registerListSymbols(s, cfg)
 	registerQueryKline(s, db)
+	registerRunPythonResearch(s, cfg)
 	registerFetchKline(s, cfg)
 	registerDownloadKline(s, db, cfg, tm)
 	registerRunBacktest(s, db, tm)

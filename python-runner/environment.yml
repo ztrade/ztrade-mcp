@@ -1,0 +1,27 @@
+name: pyrunner
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - fastapi
+  - uvicorn
+  - pydantic
+  - numpy
+  - pandas
+  - scipy
+  - matplotlib
+  - seaborn
+  - statsmodels
+  - scikit-learn
+  - numba
+  - pyarrow
+  - bottleneck
+  - pymysql
+  - cryptography
+  - ta-lib
+  - pip
+  - pip:
+      - ta
+      - empyrical
+      - backtrader
+      - plotly

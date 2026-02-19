@@ -11,6 +11,21 @@ exchanges:
 db:
   type: mysql
   uri: root:ztrade123@tcp(mysql:3306)/exchange?charset=utf8mb4&parseTime=True&loc=Local
+  readonly:
+    type: mysql
+    uri: exchange_readonly:change_me_readonly_password@tcp(mysql:3306)/exchange?charset=utf8mb4&parseTime=True&loc=Local
+    # 也可不用 uri，改为：
+    # host: mysql
+    # port: 3306
+    # database: exchange
+    # user: exchange_readonly
+    # password: change_me_readonly_password
+
+# Python 研究执行（python-runner）
+pyrunner:
+  url: "http://python-runner:9000"
+  token: ""              # 可选；如设置需与 PYRUNNER_TOKEN 一致
+  clientTimeout: 90s
 
 # MCP 配置
 mcp:

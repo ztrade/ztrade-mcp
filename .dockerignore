@@ -6,3 +6,6 @@
 *.log
 report.html
 PLAN.md
+
+# Keep the Go image small by excluding the separate python-runner build context
+python-runner

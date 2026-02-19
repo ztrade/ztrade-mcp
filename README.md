@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- **9 个 MCP Tools** — K线数据管理、策略回测、实盘交易、策略构建
+- **MCP Tools** — K线数据管理、策略回测、实盘交易、策略管理、任务管理、Python 研究执行
 - **2 个 Resources** — 策略开发文档、Engine API 参考
 - **2 个 Prompts** — 策略开发引导、回测分析引导
 - **双传输模式** — stdio（本地 IDE）+ Streamable HTTP（远程 / Docker）
@@ -65,6 +65,30 @@ go build -o ztrade-mcp .
 | start | string | ✅ | 开始时间 `2006-01-02 15:04:05` |
 | end | string | ✅ | 结束时间 |
 | limit | number | | 最大返回条数，默认 500，上限 5000 |
+
+
+### run_python_research — Python 研究执行（DB 直读）
+
+在独立的 `python-runner` 容器中执行 Python 代码，用于对行情进行研究/建模。
+
+- Scheme B：`python-runner` 直接从数据库读取 K 线数据，避免将大量 OHLCV 通过 HTTP 传回 ztrade-mcp。
+- MySQL 场景下 runner 强制使用只读账号（`db.readonly.*` 或 `PYRUNNER_READONLY_*`）。
+- Runner 会提供 `df`（pandas.DataFrame，含 `start/open/high/low/close/volume/turnover/trades` 列，额外包含 `time` UTC 时间列）、以及 `pd`/`np`/`load_kline`。
+- 镜像基于 Miniconda，内置常见量化库：numpy/pandas/scipy/statsmodels/scikit-learn/ta-lib/ta/empyrical/backtrader/plotly 等。
+- 支持图像输出：可在代码中设置 `images` / `image_path` / `image_paths` / `image_base64`，或直接生成 matplotlib 图后不关闭，runner 会自动回传图片。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|:----:|------|
+| exchange | string | ✅ | 交易所名称 |
+| symbol | string | ✅ | 交易对 |
+| binSize | string | | K 线周期，默认 1m |
+| start | string | ✅ | 开始时间 `2006-01-02 15:04:05` |
+| end | string | ✅ | 结束时间 |
+| limit | number | | 加载到 DataFrame 的最大行数；默认 0（由 runner 决定/限制） |
+| timeoutSec | number | | 执行超时秒数；默认 0（由 runner 决定） |
+| code | string | ✅ | Python 代码（通过 `result = {...}` 返回结果） |
+
+**返回**：文本 JSON（`ok`/`error`/`stdout`/`stderr`/`result`/`meta`）+ 可选 MCP 图片内容（`images`）。文本中仅包含图片元信息，图片本体通过 MCP image content 返回。
 
 ### download_kline — 下载 K 线
 
@@ -198,6 +222,7 @@ mcp:
 |------|:------:|:------:|:-----:|
 | list_data | ✅ | ✅ | ✅ |
 | query_kline | ✅ | ✅ | ✅ |
+| run_python_research | ✅ | ✅ | ✅ |
 | download_kline | ❌ | ✅ | ✅ |
 | run_backtest | ✅ | ✅ | ✅ |
 | build_strategy | ❌ | ✅ | ✅ |
@@ -212,13 +237,16 @@ mcp:
 
 ## 配置文件
 
-复用 ztrade 的 `ztrade.yaml` 配置文件，额外支持 `mcp` 配置段：
+复用 ztrade 的 `ztrade.yaml` 配置文件，额外支持 `db.readonly`（MySQL 只读账号）与 `pyrunner` 配置：
 
 ```yaml
-# 数据库
+# 数据库（MySQL 示例）
 db:
-  type: sqlite
-  uri: /path/to/exchange.db
+  type: mysql
+  uri: root:root_password@tcp(mysql:3306)/exchange?charset=utf8mb4&parseTime=True&loc=Local
+  readonly:
+    type: mysql
+    uri: exchange_readonly:change_me_readonly_password@tcp(mysql:3306)/exchange?charset=utf8mb4&parseTime=True&loc=Local
 
 # 交易所
 exchanges:
@@ -227,13 +255,19 @@ exchanges:
     key: "your-api-key"
     secret: "your-api-secret"
 
+# Python 研究执行（python-runner）
+pyrunner:
+  url: "http://python-runner:9000"
+  token: ""              # 可选；如设置需与 PYRUNNER_TOKEN 一致
+  clientTimeout: 90s         # ztrade-mcp 调用 runner 的 HTTP 超时
+
 # MCP 专属配置
 mcp:
   listen: ":8080"
-  enableLiveTrade: false    # 实盘交易安全开关
+  enableLiveTrade: false     # 实盘交易安全开关
   auth:
     enabled: false
-    type: token             # token 或 apikey
+    type: token              # token 或 apikey
     tokens: []
     keys: []
 ```
@@ -271,10 +305,30 @@ services:
       - ./configs/ztrade.yaml:/etc/ztrade/ztrade.yaml:ro
       - ztrade-data:/data/ztrade
       - ./strategies:/strategies:ro
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
-      interval: 30s
+
+  python-runner:
+    build: ./python-runner
+    expose:
+      - "9000"
+    volumes:
+      - ./configs/ztrade.yaml:/etc/ztrade/ztrade.yaml:ro
+      - ztrade-data:/data/ztrade
+    environment:
+      - PYRUNNER_ZTRADE_CONFIG=/etc/ztrade/ztrade.yaml
+      - PYRUNNER_TOKEN=${PYRUNNER_TOKEN:-}
+      - PYRUNNER_READONLY_TYPE=${PYRUNNER_READONLY_TYPE:-}
+      - PYRUNNER_READONLY_URI=${PYRUNNER_READONLY_URI:-}
+      - PYRUNNER_READONLY_HOST=${PYRUNNER_READONLY_HOST:-}
+      - PYRUNNER_READONLY_PORT=${PYRUNNER_READONLY_PORT:-}
+      - PYRUNNER_READONLY_DATABASE=${PYRUNNER_READONLY_DATABASE:-}
+      - PYRUNNER_READONLY_USER=${PYRUNNER_READONLY_USER:-}
+      - PYRUNNER_READONLY_PASSWORD=${PYRUNNER_READONLY_PASSWORD:-}
 ```
+> 说明：Scheme B 下 `python-runner` 需要能访问与 ztrade 相同的 K 线数据库。
+> - sqlite：将同一个 DB 文件/volume 挂载到 `python-runner`（示例里复用了 `ztrade-data:/data/ztrade`）。
+> - mysql：确保 runner 容器能访问 mysql 网络地址（示例里使用 `mysql` service），并配置 `db.readonly.*`（或 `PYRUNNER_READONLY_*`）以只读账号查询。
+> - 首次初始化 MySQL 前，可在 `.env` 设置 `MYSQL_READONLY_USER` / `MYSQL_READONLY_PASSWORD`，`init-readonly.sh` 会按环境变量创建只读账号。
+
 
 ## 客户端配置
 
@@ -365,7 +419,7 @@ ztrade-mcp/
 │   ├── auth.go            # User 模型、Config、RBAC 权限表、Token/APIKey 认证
 │   └── middleware.go       # HTTP 认证中间件、ContextFunc、Tool 权限中间件
 ├── tools/
-│   ├── register.go        # 注册全部 9 个 Tool
+│   ├── register.go        # 注册全部 Tool
 │   ├── list.go            # list_data
 │   ├── kline.go           # query_kline
 │   ├── download.go        # download_kline
@@ -383,6 +437,7 @@ ztrade-mcp/
 │   └── backtest.go        # analyze_backtest prompt
 ├── Dockerfile             # 多阶段构建
 ├── docker-compose.yml     # 一键部署
+├── python-runner/        # Python research runner (separate container)
 └── .dockerignore
 ```
 

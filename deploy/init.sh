@@ -14,8 +14,9 @@ mkdir -p "$DEPLOY_DIR/strategies"
 # Copy docker-compose.yml
 cp docker-compose.yml "$DEPLOY_DIR/docker-compose.yml"
 
-# Copy init.sql
+# Copy DB init scripts
 cp init.sql "$DEPLOY_DIR/init.sql"
+cp init-readonly.sh "$DEPLOY_DIR/init-readonly.sh"
 
 # Copy default config if no config exists
 if [ ! -f "$DEPLOY_DIR/configs/ztrade.yaml" ]; then
@@ -26,5 +27,6 @@ else
   echo "Config already exists at $DEPLOY_DIR/configs/ztrade.yaml, skipping."
 fi
 
-echo "Done. Place your config at $DEPLOY_DIR/configs/ztrade.yaml, then run:"
+echo "Done. Place your config at $DEPLOY_DIR/configs/ztrade.yaml."
+echo "Tip: set MYSQL_READONLY_USER / MYSQL_READONLY_PASSWORD in .env before first startup."
 echo "  cd $DEPLOY_DIR && docker compose up -d"

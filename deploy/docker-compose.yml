@@ -6,6 +6,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      python-runner:
+        condition: service_healthy
     ports:
       - "8080:8080"
     volumes:
@@ -25,6 +27,43 @@ services:
         max-size: "50m"
         max-file: "3"
 
+  python-runner:
+    build: ../python-runner
+    image: ztrade/python-runner:latest
+    container_name: ztrade-python-runner
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    expose:
+      - "9000"
+    volumes:
+      - ./configs/ztrade.yaml:/etc/ztrade/ztrade.yaml:ro
+      - ztrade-data:/data/ztrade
+    environment:
+      - TZ=Asia/Shanghai
+      - PYRUNNER_ZTRADE_CONFIG=/etc/ztrade/ztrade.yaml
+      - PYRUNNER_TOKEN=${PYRUNNER_TOKEN:-}
+      - PYRUNNER_READONLY_TYPE=${PYRUNNER_READONLY_TYPE:-}
+      - PYRUNNER_READONLY_URI=${PYRUNNER_READONLY_URI:-}
+      - PYRUNNER_READONLY_HOST=${PYRUNNER_READONLY_HOST:-}
+      - PYRUNNER_READONLY_PORT=${PYRUNNER_READONLY_PORT:-}
+      - PYRUNNER_READONLY_DATABASE=${PYRUNNER_READONLY_DATABASE:-}
+      - PYRUNNER_READONLY_USER=${PYRUNNER_READONLY_USER:-}
+      - PYRUNNER_READONLY_PASSWORD=${PYRUNNER_READONLY_PASSWORD:-}
+      - PYRUNNER_MAX_ROWS=200000
+      - PYRUNNER_DEFAULT_TIMEOUT_SEC=60
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(\"http://localhost:9000/health\").read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
   mysql:
     image: mysql:8.0
     container_name: ztrade-mysql
@@ -33,10 +72,13 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+      - ./init-readonly.sh:/docker-entrypoint-initdb.d/20-init-readonly.sh:ro
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ztrade123}
       MYSQL_DATABASE: exchange
+      MYSQL_READONLY_USER: ${MYSQL_READONLY_USER:-exchange_readonly}
+      MYSQL_READONLY_PASSWORD: ${MYSQL_READONLY_PASSWORD:-change_me_readonly_password}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
