@@ -293,14 +293,14 @@ func (s *Store) DeleteScript(id int64) error {
 // ListVersions lists all versions of a script.
 func (s *Store) ListVersions(scriptID int64) ([]ScriptVersion, error) {
 	var versions []ScriptVersion
-	err := s.engine.Where("script_id = ?", scriptID).OrderBy("version DESC").Find(&versions)
+	err := s.engine.OrderBy("version DESC").Find(&versions, &ScriptVersion{ScriptID: scriptID})
 	return versions, err
 }
 
 // GetVersion retrieves a specific version of a script.
 func (s *Store) GetVersion(scriptID int64, version int) (*ScriptVersion, error) {
-	ver := &ScriptVersion{}
-	has, err := s.engine.Where("script_id = ? AND version = ?", scriptID, version).Get(ver)
+	ver := &ScriptVersion{ScriptID: scriptID, Version: version}
+	has, err := s.engine.Get(ver)
 	if err != nil {
 		return nil, err
 	}
@@ -349,18 +349,18 @@ func (s *Store) SaveBacktestRecord(record *BacktestRecord) error {
 // ListBacktestRecords lists backtest records for a script.
 func (s *Store) ListBacktestRecords(scriptID int64, limit int) ([]BacktestRecord, error) {
 	var records []BacktestRecord
-	sess := s.engine.Where("script_id = ?", scriptID).OrderBy("created_at DESC")
+	sess := s.engine.OrderBy("created_at DESC")
 	if limit > 0 {
 		sess = sess.Limit(limit)
 	}
-	err := sess.Find(&records)
+	err := sess.Find(&records, &BacktestRecord{ScriptID: scriptID})
 	return records, err
 }
 
 // GetBestBacktest returns the best performing backtest for a script by overall score.
 func (s *Store) GetBestBacktest(scriptID int64) (*BacktestRecord, error) {
-	record := &BacktestRecord{}
-	has, err := s.engine.Where("script_id = ?", scriptID).OrderBy("overall_score DESC").Get(record)
+	record := &BacktestRecord{ScriptID: scriptID}
+	has, err := s.engine.OrderBy("overall_score DESC").Get(record)
 	if err != nil {
 		return nil, err
 	}

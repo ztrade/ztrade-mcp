@@ -38,13 +38,13 @@ func (s *Store) ListBacktestLogs(recordID int64, offset, limit int) ([]BacktestL
 		limit = 2000
 	}
 
-	total, err := s.engine.Where("record_id = ?", recordID).Count(new(BacktestLog))
+	total, err := s.engine.Count(&BacktestLog{RecordID: recordID})
 	if err != nil {
 		return nil, 0, err
 	}
 
 	var logs []BacktestLog
-	err = s.engine.Where("record_id = ?", recordID).Asc("line_no").Limit(limit, offset).Find(&logs)
+	err = s.engine.Asc("line_no").Limit(limit, offset).Find(&logs, &BacktestLog{RecordID: recordID})
 	if err != nil {
 		return nil, 0, err
 	}

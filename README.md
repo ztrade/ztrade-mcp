@@ -68,6 +68,30 @@ go build -o ztrade-mcp .
 | end | string | ✅ | 结束时间 |
 | limit | number | | 最大返回条数，默认 500，上限 5000 |
 
+### list_indicators — 列出指标定义
+
+列出 `query_indicator` 支持的常用指标及参数范围、默认参数。
+
+### query_indicator — 计算技术指标
+
+基于本地数据库 K 线计算常用技术指标，指标实现来自 `indicator/` 模块。
+
+- 支持：`EMA`、`SMA`、`SMMA(SSMA)`、`MACD`、`SMAMACD`、`BOLL`、`RSI`、`STOCHRSI`、`ATR`、`ADX`。
+- 当请求周期大于 `1m` 时，会自动基于 `1m` 数据聚合后再计算指标。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|:----:|------|
+| exchange | string | ✅ | 交易所名称 |
+| symbol | string | ✅ | 交易对 |
+| indicator | string | ✅ | 指标名称（建议先用 `list_indicators`） |
+| params | string | | 指标参数，逗号分隔整数；为空则使用默认值 |
+| binSize | string | | K 线周期 (1m/5m/15m/1h/1d)，默认 1m |
+| start | string | ✅ | 开始时间 `2006-01-02 15:04:05` |
+| end | string | ✅ | 结束时间 |
+| limit | number | | 最大返回条数，默认 500，上限 5000 |
+| includeCandles | boolean | | 是否附带返回 OHLCV，默认 false |
+
+返回包含完整指标序列 (`series`) 与最新一条指标值 (`latest`)。
 
 ### run_python_research — Python 研究执行（DB 直读）
 
@@ -224,6 +248,8 @@ mcp:
 |------|:------:|:------:|:-----:|
 | list_data | ✅ | ✅ | ✅ |
 | query_kline | ✅ | ✅ | ✅ |
+| list_indicators | ✅ | ✅ | ✅ |
+| query_indicator | ✅ | ✅ | ✅ |
 | run_python_research | ✅ | ✅ | ✅ |
 | download_kline | ❌ | ✅ | ✅ |
 | run_backtest | ✅ | ✅ | ✅ |
@@ -424,6 +450,7 @@ ztrade-mcp/
 │   ├── register.go        # 注册全部 Tool
 │   ├── list.go            # list_data
 │   ├── kline.go           # query_kline
+│   ├── indicator.go       # list_indicators / query_indicator
 │   ├── download.go        # download_kline
 │   ├── backtest.go        # run_backtest
 │   ├── build.go           # build_strategy
