@@ -7,11 +7,11 @@ WORKDIR /app
 
 # Dependency cache layer
 COPY go.mod go.sum ./
-RUN go mod download
+RUN GOPROXY="https://goproxy.cn,direct" go mod download
 
 # Build
 COPY . .
-RUN CGO_ENABLED=1 go build -ldflags="-s -w -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -o /ztrade-mcp .
+RUN CGO_ENABLED=1 GOPROXY="https://goproxy.cn,direct" go build -ldflags="-s -w -X main.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -o /ztrade-mcp .
 
 # ====== Runtime Stage ======
 # Go plugin (.so) requires the exact same Go version at runtime as at build time,

@@ -133,6 +133,8 @@ go build -o ztrade-mcp .
 
 使用策略脚本对历史数据进行回测，返回结构化结果。
 
+- 当策略脚本依赖本地私有 Go 模块时，可在配置文件中设置 `mcp.strategy.moduleRoot`，指向包含 `go.mod`/`go.sum`/`replace` 的本地模块根目录。ztrade 会在临时编译目录继承该模块上下文后再编译插件。
+
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|:----:|------|
 | script | string | ✅ | 策略文件路径 (.go 或 .so) |
@@ -179,6 +181,23 @@ go build -o ztrade-mcp .
 | symbol | string | ✅ | 交易对 |
 | param | string | | 策略参数 JSON |
 | recentDays | number | | 加载最近 N 天历史数据，默认 1 |
+
+### run_backtest_managed — 托管策略回测
+
+从数据库读取策略版本，编译后执行回测，并将结果与日志写回数据库。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|:----:|------|
+| strategyId | number | ✅ | 数据库中的策略 ID |
+| exchange | string | ✅ | 交易所名称 |
+| symbol | string | ✅ | 交易对 |
+| start | string | ✅ | 回测开始时间 |
+| end | string | ✅ | 回测结束时间 |
+| balance | number | | 初始资金，默认 100000 |
+| fee | number | | 手续费率，默认 0.0005 |
+| lever | number | | 杠杆倍数，默认 1 |
+| param | string | | 策略参数 JSON |
+| version | number | | 指定策略版本，不传则使用最新版本 |
 
 ### stop_trade — 停止实盘
 
@@ -293,6 +312,8 @@ pyrunner:
 mcp:
   listen: ":8080"
   enableLiveTrade: false     # 实盘交易安全开关
+  strategy:
+    moduleRoot: ""          # 可选；本地 Go module 根目录，用于 replace 私有依赖
   auth:
     enabled: false
     type: token              # token 或 apikey

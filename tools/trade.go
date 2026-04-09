@@ -79,14 +79,14 @@ func registerStartTrade(s *server.MCPServer, cfg *viper.Viper) {
 			if err := writeFile(goPath, s.Content); err != nil {
 				return mcp.NewToolResultError("failed to write temp go file: " + err.Error()), nil
 			}
-			builder := ctl.NewBuilder(goPath, soPath)
+			builder := newStrategyBuilder(goPath, soPath, cfg)
 			if err := builder.Build(); err != nil {
 				return mcp.NewToolResultError("build failed: " + err.Error()), nil
 			}
 			script = soPath
 		}
 
-		script, err := ensurePluginScript(script)
+		script, err := ensurePluginScript(script, cfg)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

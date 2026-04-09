@@ -5,18 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"github.com/ztrade/ztrade-mcp/store"
 	"github.com/ztrade/ztrade/pkg/ctl"
 	"github.com/ztrade/ztrade/pkg/process/dbstore"
 	"github.com/ztrade/ztrade/pkg/report"
 )
 
-func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *store.Store, tm *TaskManager) {
+func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper, st *store.Store, tm *TaskManager) {
 	tool := mcp.NewTool("run_backtest_managed",
 		mcp.WithDescription("Run a backtest using a managed strategy from the database. The strategy is extracted from DB, backtested, and results are automatically saved for performance tracking. Captured engine.Log output is stored and can be queried via get_backtest_logs. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
 		mcp.WithNumber("strategyId", mcp.Required(), mcp.Description("Strategy ID in the database")),
@@ -95,7 +97,7 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, st *st
 
 		// --- 自动编译为 so ---
 		soFile := fmt.Sprintf("/tmp/ztrade_script_%d_v%d.so", strategyID, scriptVersion)
-		builder := ctl.NewBuilder(tmpFile, soFile)
+		builder := newStrategyBuilder(tmpFile, soFile, cfg)
 		if err := builder.Build(); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to build so: %s", err.Error())), nil
 		}
@@ -342,6 +344,9 @@ func registerStrategyPerformance(s *server.MCPServer, st *store.Store) {
 
 // writeFile is a helper to write content to a file.
 func writeFile(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return err

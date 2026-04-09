@@ -12,7 +12,8 @@ require (
 	github.com/ztrade/exchange v0.1.0
 	github.com/ztrade/indicator v1.1.8
 	github.com/ztrade/trademodel v1.1.8
-	github.com/ztrade/ztrade v0.4.3
+	github.com/ztrade/ztrade v0.5.1
+	modernc.org/sqlite v1.46.1
 	xorm.io/xorm v1.3.11
 )
 
@@ -57,7 +58,6 @@ require (
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/gomarkdown/markdown v0.0.0-20260217112301-37c66b85d6ab // indirect
-	github.com/gopherjs/gopherjs v1.20.1 // indirect
 	github.com/goplus/ixgo v1.0.4 // indirect
 	github.com/goplus/reflectx v1.6.3 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
@@ -125,7 +125,6 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/visualfc/funcval v0.1.4 // indirect
-	github.com/visualfc/gid v0.3.0 // indirect
 	github.com/visualfc/goembed v0.3.4 // indirect
 	github.com/visualfc/xtype v0.3.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
@@ -152,6 +151,5 @@ require (
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.46.1 // indirect
 	xorm.io/builder v0.3.13 // indirect
 )

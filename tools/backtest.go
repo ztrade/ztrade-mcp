@@ -7,6 +7,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -92,7 +93,7 @@ func runBacktestCore(db *dbstore.DBStore, script, exchangeName, symbol, param st
 	return result, nil
 }
 
-func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, tm *TaskManager) {
+func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper, tm *TaskManager) {
 	tool := mcp.NewTool("run_backtest",
 		mcp.WithDescription("Run a backtest with a strategy script on historical data. Returns structured results including profit, win rate, sharpe ratio, max drawdown, etc. Captures engine.Log output as 'logs' in the response. When the time range exceeds 30 days the task runs asynchronously — a task ID is returned immediately and you can poll progress with get_task_status / get_task_result."),
 		mcp.WithString("script", mcp.Required(), mcp.Description("Strategy file path (.go or .so)")),
@@ -146,14 +147,14 @@ func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, tm *TaskManag
 				return mcp.NewToolResultError("failed to write temp go file: " + err.Error()), nil
 			}
 			// 编译so
-			builder := ctl.NewBuilder(goPath, soPath)
+			builder := newStrategyBuilder(goPath, soPath, cfg)
 			if err := builder.Build(); err != nil {
 				return mcp.NewToolResultError("build failed: " + err.Error()), nil
 			}
 			script = soPath
 		}
 
-		script, err := ensurePluginScript(script)
+		script, err := ensurePluginScript(script, cfg)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

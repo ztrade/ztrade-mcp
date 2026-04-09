@@ -31,6 +31,8 @@ pyrunner:
 mcp:
   listen: ":8080"
   enableLiveTrade: false
+  strategy:
+    moduleRoot: ""
   auth:
     enabled: true
     type: token

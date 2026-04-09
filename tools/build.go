@@ -7,11 +7,11 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/spf13/viper"
 	"github.com/ztrade/ztrade-mcp/store"
-	"github.com/ztrade/ztrade/pkg/ctl"
 )
 
-func registerBuildStrategy(s *server.MCPServer) {
+func registerBuildStrategy(s *server.MCPServer, cfg *viper.Viper) {
 	tool := mcp.NewTool("build_strategy",
 		mcp.WithDescription("Compile a Go strategy source file (.go) into a plugin (.so) that can be used for backtesting and live trading."),
 		mcp.WithString("script", mcp.Required(), mcp.Description("Strategy source file path (.go)")),
@@ -49,7 +49,7 @@ func registerBuildStrategy(s *server.MCPServer) {
 			}
 		}
 
-		builder := ctl.NewBuilder(script, output)
+		builder := newStrategyBuilder(script, output, cfg)
 		err := builder.Build()
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("build failed: %s", err.Error())), nil
