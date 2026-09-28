@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	log "github.com/sirupsen/logrus"
 	"github.com/ztrade/ztrade-mcp/store"
 )
 
@@ -122,6 +123,7 @@ func registerUpdateStrategy(s *server.MCPServer, st *store.Store) {
 		id := int64(req.GetFloat("id", 0))
 		content := req.GetString("content", "")
 		message := req.GetString("message", "")
+		log.Infof("update_strategy id=%d content=%s", id, content)
 
 		if message == "" {
 			message = "update content"

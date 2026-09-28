@@ -8,7 +8,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/viper"
-	"github.com/ztrade/ztrade-mcp/store"
 )
 
 func registerBuildStrategy(s *server.MCPServer, cfg *viper.Viper) {
@@ -21,38 +20,32 @@ func registerBuildStrategy(s *server.MCPServer, cfg *viper.Viper) {
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		script := req.GetString("script", "")
 		output := req.GetString("output", "")
+		compiledFromStore := false
 
 		// --- 支持从数据库查找策略 ---
-		var goPath string
-		var soPath string
 		st := getStoreFromContext(ctx)
-		if st != nil && script != "" && (isLikelyID(script) || isLikelyName(script)) {
-			var s *store.Script
-			var err error
-			if isLikelyID(script) {
-				id, _ := parseID(script)
-				s, err = st.GetScript(id)
-			} else {
-				s, err = st.GetScriptByName(script)
-			}
+		if s, found, err := resolveScriptFromStoreInput(st, script); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		} else if found {
+			cachedSOPath, err := compileStoredScriptWithCache(s, cfg)
 			if err != nil {
-				return mcp.NewToolResultError("strategy not found: " + err.Error()), nil
+				return mcp.NewToolResultError(err.Error()), nil
 			}
-			goPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.go", s.Name, s.Version)
-			soPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.so", s.Name, s.Version)
-			if err := writeFile(goPath, s.Content); err != nil {
-				return mcp.NewToolResultError("failed to write temp go file: " + err.Error()), nil
-			}
-			script = goPath
+			compiledFromStore = true
+			script = cachedSOPath
 			if output == "" {
-				output = soPath
+				output = cachedSOPath
+			} else if err := copyFile(cachedSOPath, output); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to copy so to output: %s", err.Error())), nil
 			}
 		}
 
-		builder := newStrategyBuilder(script, output, cfg)
-		err := builder.Build()
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("build failed: %s", err.Error())), nil
+		if !compiledFromStore {
+			builder := newStrategyBuilder(script, output, cfg)
+			err := builder.Build()
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("build failed: %s", err.Error())), nil
+			}
 		}
 
 		result := map[string]interface{}{

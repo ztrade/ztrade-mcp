@@ -134,6 +134,7 @@ go build -o ztrade-mcp .
 使用策略脚本对历史数据进行回测，返回结构化结果。
 
 - 当策略脚本依赖本地私有 Go 模块时，可在配置文件中设置 `mcp.strategy.moduleRoot`，指向包含 `go.mod`/`go.sum`/`replace` 的本地模块根目录。ztrade 会在临时编译目录继承该模块上下文后再编译插件。
+- 可通过 `mcp.strategy.outputDir` 自定义策略编译产物（.go/.so）目录；默认目录为 `/tmp/ztrade_plugins`。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|:----:|------|
@@ -314,6 +315,7 @@ mcp:
   enableLiveTrade: false     # 实盘交易安全开关
   strategy:
     moduleRoot: ""          # 可选；本地 Go module 根目录，用于 replace 私有依赖
+    outputDir: "/tmp/ztrade_plugins"  # 可选；策略编译产物目录
   auth:
     enabled: false
     type: token              # token 或 apikey

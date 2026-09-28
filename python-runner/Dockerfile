@@ -11,9 +11,13 @@ ENV PATH=/opt/conda/envs/pyrunner/bin:$PATH \
 
 COPY main.py /app/main.py
 
-# Run as non-root.
-RUN useradd -m -u 10001 appuser && chown -R appuser:appuser /app
+# Run as non-root. Keep the default history directory on its own writable volume.
+RUN useradd -m -u 10001 appuser \
+    && mkdir -p /app/data \
+    && chown -R appuser:appuser /app
 USER appuser
+
+VOLUME ["/app/data"]
 
 EXPOSE 9000
 

@@ -42,6 +42,8 @@ If readonly config is missing, runner startup fails.
 
 - `GET /health`
 - `POST /v1/research/run`
+- `GET /v1/research/history`
+- `GET /v1/research/history/{id}`
 
 Request body:
 
@@ -58,7 +60,7 @@ Request body:
 }
 ```
 
-Response body includes: `ok` / `error` / `stdout` / `stderr` / `result` / `meta` / `images`.
+Response body includes: `ok` / `error` / `stdout` / `stderr` / `result` / `meta` / `images` / `historyId`.
 
 `images` is a list of base64 images:
 
@@ -82,6 +84,37 @@ Limits are controlled by env vars:
 
 - `PYRUNNER_MAX_IMAGES` (default `3`)
 - `PYRUNNER_MAX_IMAGE_BYTES` (default `1048576`)
+
+## Execution history
+
+Every accepted `/v1/research/run` execution is recorded in a separate local SQLite database, including failed and timed-out executions. A record contains the request parameters and code, duration, result, stdout/stderr, error and image metadata. Image Base64 payloads are not duplicated in the history database.
+
+Configuration:
+
+- `PYRUNNER_HISTORY_DB` (default `data/history.db`)
+- `PYRUNNER_HISTORY_MAX_ENTRIES` (default `1000`; set to `0` for unlimited retention)
+
+The default path is relative to the process working directory (`/app` in the container). To preserve history when a container is recreated, mount the directory or select a mounted path, for example:
+
+```yaml
+volumes:
+  - python-runner-history:/app/data
+```
+
+List history, newest first:
+
+```text
+GET /v1/research/history?limit=50&offset=0
+GET /v1/research/history?ok=false&exchange=binance&symbol=BTCUSDT
+```
+
+Get a complete record:
+
+```text
+GET /v1/research/history/123
+```
+
+History endpoints use the same optional `Authorization: Bearer <PYRUNNER_TOKEN>` authentication as the execution endpoint. History may contain source code and output, so production deployments should configure the token.
 
 ## User code context
 

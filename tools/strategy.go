@@ -102,12 +102,9 @@ type mergeData struct {
 
 func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 	tool := mcp.NewTool("create_strategy",
-		mcp.WithDescription("Create and save a strategy script to the database. Two modes: "+
-			"1) Provide 'content' directly to save existing source code. "+
-			"2) Omit 'content' to generate a code skeleton from a template with indicators and periods. "+
-			"The script is saved to the database with version tracking."),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Strategy name (e.g., 'EmaGoldenCross'). Used as struct name when generating from template.")),
-		mcp.WithString("content", mcp.Description("Full strategy source code (Go code). If provided, saves directly without template generation.")),
+		mcp.WithDescription("Create and save a strategy script generated from the built-in template with optional indicators and periods. "+
+			"The generated script is saved to the database with version tracking, and returned in the response."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Strategy name (e.g., 'EmaGoldenCross'). Used as struct name in generated template code.")),
 		mcp.WithString("description", mcp.Description("Brief description of the strategy")),
 		mcp.WithString("tags", mcp.Description("Comma-separated tags (e.g., 'trend,ema,momentum')")),
 		mcp.WithString("lifecycleStatus", mcp.Description("Lifecycle status: research, development, testing, stable. Default: research")),
@@ -121,7 +118,6 @@ func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		name := req.GetString("name", "")
-		content := req.GetString("content", "")
 		description := req.GetString("description", "")
 		tags := req.GetString("tags", "")
 		lifecycleStatus := req.GetString("lifecycleStatus", "")
@@ -129,61 +125,62 @@ func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 		indicators := req.GetString("indicators", "")
 		periods := req.GetString("periods", "")
 
+		if strings.TrimSpace(name) == "" {
+			return mcp.NewToolResultError("name is required"), nil
+		}
+
 		if description == "" {
 			description = name + " strategy"
 		}
 
-		// Mode 1: content provided directly
-		// Mode 2: generate from template
-		if content == "" {
-			data := strategyData{
-				Name:        name,
-				Description: description,
-			}
-
-			// Parse indicators
-			if indicators != "" {
-				for _, ind := range strings.Split(indicators, ",") {
-					ind = strings.TrimSpace(ind)
-					if ind == "" {
-						continue
-					}
-					args := parseIndicator(ind)
-					data.Indicators = append(data.Indicators, indicatorData{Args: args})
-				}
-			}
-
-			// Parse merge periods
-			if periods != "" {
-				for _, p := range strings.Split(periods, ",") {
-					p = strings.TrimSpace(p)
-					if p == "" {
-						continue
-					}
-					suffix := strings.ToUpper(strings.Replace(p, "m", "M", 1))
-					suffix = strings.Replace(suffix, "h", "H", 1)
-					suffix = strings.Replace(suffix, "d", "D", 1)
-					data.Merges = append(data.Merges, mergeData{Period: p, Suffix: suffix})
-				}
-			}
-
-			tmpl, err := template.New("strategy").Parse(strategyTemplate)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("template parse error: %s", err.Error())), nil
-			}
-
-			var buf bytes.Buffer
-			err = tmpl.Execute(&buf, data)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("template execution error: %s", err.Error())), nil
-			}
-			content = buf.String()
+		data := strategyData{
+			Name:        name,
+			Description: description,
 		}
+
+		// Parse indicators
+		if indicators != "" {
+			for _, ind := range strings.Split(indicators, ",") {
+				ind = strings.TrimSpace(ind)
+				if ind == "" {
+					continue
+				}
+				args := parseIndicator(ind)
+				data.Indicators = append(data.Indicators, indicatorData{Args: args})
+			}
+		}
+
+		// Parse merge periods
+		if periods != "" {
+			for _, p := range strings.Split(periods, ",") {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				suffix := strings.ToUpper(strings.Replace(p, "m", "M", 1))
+				suffix = strings.Replace(suffix, "h", "H", 1)
+				suffix = strings.Replace(suffix, "d", "D", 1)
+				data.Merges = append(data.Merges, mergeData{Period: p, Suffix: suffix})
+			}
+		}
+
+		tmpl, err := template.New("strategy").Parse(strategyTemplate)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("template parse error: %s", err.Error())), nil
+		}
+
+		var buf bytes.Buffer
+		err = tmpl.Execute(&buf, data)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("template execution error: %s", err.Error())), nil
+		}
+		content := buf.String()
 
 		// Save to database
 		result := map[string]interface{}{
-			"status": "success",
-			"name":   name,
+			"status":  "success",
+			"name":    name,
+			"content": content,
 		}
 		if st == nil {
 			return mcp.NewToolResultError("script store not initialized (check database config)"), nil
@@ -201,7 +198,6 @@ func registerCreateStrategy(s *server.MCPServer, st *store.Store) {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to save script: %s", err.Error())), nil
 		}
 		result["id"] = script.ID
-		result["version"] = script.Version
 
 		resultJSON, _ := json.MarshalIndent(result, "", "  ")
 		return mcp.NewToolResultText(string(resultJSON)), nil

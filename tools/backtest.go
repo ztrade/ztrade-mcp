@@ -122,36 +122,17 @@ func registerRunBacktest(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Vi
 		leverF := req.GetFloat("lever", 0)
 		param := req.GetString("param", "")
 
-		// --- 自动从数据库读取策略并编译为so ---
-		var soPath string
-		var goPath string
+		// --- 自动从数据库读取策略并编译为so（带缓存）---
 		// var useSo bool // 已不再使用
 		st := getStoreFromContext(ctx)
-		if st != nil && script != "" && (isLikelyID(script) || isLikelyName(script)) {
-			// 允许 script 传入策略ID或名称
-			var s *store.Script
-			var err error
-			if isLikelyID(script) {
-				id, _ := parseID(script)
-				s, err = st.GetScript(id)
-			} else {
-				s, err = st.GetScriptByName(script)
-			}
+		if s, found, err := resolveScriptFromStoreInput(st, script); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		} else if found {
+			cachedSOPath, err := compileStoredScriptWithCache(s, cfg)
 			if err != nil {
-				return mcp.NewToolResultError("strategy not found: " + err.Error()), nil
+				return mcp.NewToolResultError(err.Error()), nil
 			}
-			goPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.go", s.Name, s.Version)
-			soPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.so", s.Name, s.Version)
-			// 写入go文件
-			if err := writeFile(goPath, s.Content); err != nil {
-				return mcp.NewToolResultError("failed to write temp go file: " + err.Error()), nil
-			}
-			// 编译so
-			builder := newStrategyBuilder(goPath, soPath, cfg)
-			if err := builder.Build(); err != nil {
-				return mcp.NewToolResultError("build failed: " + err.Error()), nil
-			}
-			script = soPath
+			script = cachedSOPath
 		}
 
 		script, err := ensurePluginScript(script, cfg)

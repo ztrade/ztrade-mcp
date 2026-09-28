@@ -33,6 +33,7 @@ mcp:
   enableLiveTrade: false
   strategy:
     moduleRoot: ""
+    outputDir: "/tmp/ztrade_plugins"
   auth:
     enabled: true
     type: token

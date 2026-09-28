@@ -88,14 +88,6 @@ func (s *MyStrategy) OnPosition(pos, price float64) {
 
 ## 指标用法
 见 Engine API 文档，支持 EMA/SMA/SSMA/MACD/BOLL/RSI/STOCHRSI 等。
-
-## 运行方式
-ztrade build --script my_strategy.go --output my_strategy.so
-ztrade backtest --script my_strategy.so --exchange binance --symbol BTCUSDT \
-  --start "2024-01-01 08:00:00" --end "2024-06-01 08:00:00"
- 
-ztrade backtest --script my_strategy.go --exchange binance --symbol BTCUSDT \
-  --start "2024-01-01 08:00:00" --end "2024-06-01 08:00:00"
  
 
 ## 重要说明
@@ -106,21 +98,6 @@ ztrade backtest --script my_strategy.go --exchange binance --symbol BTCUSDT \
 5. 下单必须用 engine.* 系列方法，仓位跟踪用 OnPosition
 - OnTradeMarket(trade *Trade) — 市场成交回调
 - OnDepth(depth *Depth) — 深度数据回调
-
-## 两种运行方式
-
-### 1. 插件模式 (.so) — 推荐
-` + "```bash" + `
-ztrade build --script my_strategy.go --output my_strategy.so
-ztrade backtest --script my_strategy.so --exchange binance --symbol BTCUSDT \
-  --start "2024-01-01 08:00:00" --end "2024-06-01 08:00:00"
-` + "```" + `
-
-### 2. 源码模式 (.go) — 需要 ixgo 构建
-` + "```bash" + `
-ztrade backtest --script my_strategy.go --exchange binance --symbol BTCUSDT \
-  --start "2024-01-01 08:00:00" --end "2024-06-01 08:00:00"
-` + "```" + `
 
 ## 重要说明
 

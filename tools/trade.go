@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ztrade/ztrade-mcp/store"
 	"github.com/ztrade/ztrade/pkg/ctl"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -59,31 +58,15 @@ func registerStartTrade(s *server.MCPServer, cfg *viper.Viper) {
 		recentDaysF := req.GetFloat("recentDays", 0)
 
 		// --- 自动从数据库读取策略并编译为so ---
-		var soPath string
-		var goPath string
 		st := getStoreFromContext(ctx)
-		if st != nil && script != "" && (isLikelyID(script) || isLikelyName(script)) {
-			var s *store.Script
-			var err error
-			if isLikelyID(script) {
-				id, _ := parseID(script)
-				s, err = st.GetScript(id)
-			} else {
-				s, err = st.GetScriptByName(script)
-			}
+		if s, found, err := resolveScriptFromStoreInput(st, script); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		} else if found {
+			compiledScript, err := compileStoredScriptWithCache(s, cfg)
 			if err != nil {
-				return mcp.NewToolResultError("strategy not found: " + err.Error()), nil
+				return mcp.NewToolResultError(err.Error()), nil
 			}
-			goPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.go", s.Name, s.Version)
-			soPath = fmt.Sprintf("/tmp/ztrade_plugins/%s_v%d.so", s.Name, s.Version)
-			if err := writeFile(goPath, s.Content); err != nil {
-				return mcp.NewToolResultError("failed to write temp go file: " + err.Error()), nil
-			}
-			builder := newStrategyBuilder(goPath, soPath, cfg)
-			if err := builder.Build(); err != nil {
-				return mcp.NewToolResultError("build failed: " + err.Error()), nil
-			}
-			script = soPath
+			script = compiledScript
 		}
 
 		script, err := ensurePluginScript(script, cfg)

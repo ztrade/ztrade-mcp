@@ -21,7 +21,7 @@ type Script struct {
 	Status            string    `xorm:"varchar(20) default('active')" json:"status"` // active, archived, deleted
 	LifecycleStatus   string    `xorm:"varchar(20) default('research')" json:"lifecycleStatus"`
 	FieldDescriptions string    `xorm:"text" json:"fieldDescriptions"`
-	Version           int       `xorm:"default(1)" json:"version"`
+	Version           int       `xorm:"default(0)" json:"version"`
 	CreatedAt         time.Time `xorm:"created" json:"createdAt"`
 	UpdatedAt         time.Time `xorm:"updated" json:"updatedAt"`
 }
@@ -131,12 +131,13 @@ func (s *Store) Close() error {
 
 // --- Script CRUD ---
 
-// CreateScript creates a new script and saves its initial version.
+// CreateScript creates a new script without creating a version history entry.
+// Version history starts from the first content update.
 func (s *Store) CreateScript(script *Script) error {
 	if script == nil {
 		return fmt.Errorf("script is nil")
 	}
-	script.Version = 1
+	script.Version = 0
 	script.Status = "active"
 	if script.LifecycleStatus == "" {
 		script.LifecycleStatus = StrategyLifecycleResearch
@@ -145,17 +146,6 @@ func (s *Store) CreateScript(script *Script) error {
 		return fmt.Errorf("invalid lifecycleStatus %s", script.LifecycleStatus)
 	}
 	_, err := s.engine.Insert(script)
-	if err != nil {
-		return err
-	}
-	// Save initial version
-	ver := &ScriptVersion{
-		ScriptID: script.ID,
-		Version:  1,
-		Content:  script.Content,
-		Message:  "initial version",
-	}
-	_, err = s.engine.Insert(ver)
 	return err
 }
 

@@ -89,17 +89,9 @@ func registerRunBacktestManaged(s *server.MCPServer, db *dbstore.DBStore, cfg *v
 			leverF = 1
 		}
 
-		// Write script to temp file for backtesting
-		tmpFile := fmt.Sprintf("/tmp/ztrade_script_%d_v%d.go", strategyID, scriptVersion)
-		if err := writeFile(tmpFile, scriptContent); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to write temp script: %s", err.Error())), nil
-		}
-
-		// --- 自动编译为 so ---
-		soFile := fmt.Sprintf("/tmp/ztrade_script_%d_v%d.so", strategyID, scriptVersion)
-		builder := newStrategyBuilder(tmpFile, soFile, cfg)
-		if err := builder.Build(); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("failed to build so: %s", err.Error())), nil
+		soFile, err := compileScriptContentWithCache(strategyID, scriptVersion, scriptContent, cfg)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		// runManagedBacktest is the core logic shared by sync and async paths

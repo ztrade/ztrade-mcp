@@ -2,6 +2,8 @@ package store
 
 import "fmt"
 
+const maxBacktestLogInsertBatchSize = 1000
+
 // SaveBacktestLogs persists captured engine.Log lines for a backtest record.
 func (s *Store) SaveBacktestLogs(recordID int64, lines []string) error {
 	if recordID <= 0 {
@@ -19,8 +21,36 @@ func (s *Store) SaveBacktestLogs(recordID int64, lines []string) error {
 			Content:  line,
 		})
 	}
-	_, err := s.engine.Insert(&logs)
-	return err
+
+	sess := s.engine.NewSession()
+	defer sess.Close()
+
+	if err := sess.Begin(); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = sess.Rollback()
+		}
+	}()
+
+	for start := 0; start < len(logs); start += maxBacktestLogInsertBatchSize {
+		end := start + maxBacktestLogInsertBatchSize
+		if end > len(logs) {
+			end = len(logs)
+		}
+		batch := logs[start:end]
+		if _, err := sess.Insert(&batch); err != nil {
+			return err
+		}
+	}
+
+	if err := sess.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 // ListBacktestLogs returns paginated captured logs for one backtest record.

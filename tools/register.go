@@ -21,8 +21,6 @@ func RegisterAll(s *server.MCPServer, db *dbstore.DBStore, cfg *viper.Viper, st 
 	registerRunPythonResearch(s, cfg)
 	registerFetchKline(s, cfg)
 	registerDownloadKline(s, db, cfg, tm)
-	registerRunBacktest(s, db, cfg, tm)
-	registerBuildStrategy(s, cfg)
 	registerCreateStrategy(s, st)
 	registerStartTrade(s, cfg)
 	registerStopTrade(s)

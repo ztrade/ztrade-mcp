@@ -1,24 +1,27 @@
 import base64
 import io
 import json
+import logging
 import mimetypes
+import multiprocessing as mp
 import os
 import re
 import sqlite3
+import time
 import traceback
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import closing, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
 
-import multiprocessing as mp
-
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 
 # Keep table-name validation aligned with ztrade/pkg/process/dbstore/db.go.
 TBL_RE = re.compile(r"^([A-Za-z0-9\-]+)_([A-Za-z0-9_\-]+)_([A-Za-z0-9]+)$")
+logger = logging.getLogger("python-runner")
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,8 @@ class RunnerConfig:
     default_timeout_sec: int
     max_images: int
     max_image_bytes: int
+    history_db: str
+    history_max_entries: int
 
 
 class ResearchRequest(BaseModel):
@@ -150,6 +155,14 @@ def load_config() -> RunnerConfig:
     if max_image_bytes <= 0:
         max_image_bytes = 1 << 20
 
+    history_db = os.getenv("PYRUNNER_HISTORY_DB", "data/history.db").strip()
+    if not history_db:
+        history_db = "data/history.db"
+
+    history_max_entries = _read_int_env("PYRUNNER_HISTORY_MAX_ENTRIES", 1_000)
+    if history_max_entries < 0:
+        history_max_entries = 0
+
     return RunnerConfig(
         token=token,
         readonly_type=readonly_type,
@@ -165,6 +178,8 @@ def load_config() -> RunnerConfig:
         default_timeout_sec=default_timeout_sec,
         max_images=max_images,
         max_image_bytes=max_image_bytes,
+        history_db=history_db,
+        history_max_entries=history_max_entries,
     )
 
 
@@ -213,6 +228,224 @@ def _json_default(obj: Any) -> Any:
         pass
 
     return str(obj)
+
+
+_HISTORY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS research_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    ok INTEGER NOT NULL,
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    bin_size TEXT NOT NULL,
+    range_start INTEGER NOT NULL,
+    range_end INTEGER NOT NULL,
+    row_limit INTEGER NOT NULL,
+    timeout_sec INTEGER NOT NULL,
+    rows_loaded INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    error TEXT,
+    stdout TEXT NOT NULL,
+    stdout_truncated INTEGER NOT NULL,
+    stderr TEXT NOT NULL,
+    stderr_truncated INTEGER NOT NULL,
+    result_json TEXT NOT NULL,
+    images_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_history_created_at
+    ON research_history(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_research_history_market
+    ON research_history(exchange, symbol, bin_size, id DESC);
+"""
+
+
+def _open_history_db(cfg: RunnerConfig) -> sqlite3.Connection:
+    db_path = os.path.abspath(cfg.history_db)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path, timeout=5)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.executescript(_HISTORY_SCHEMA)
+    except Exception:
+        conn.close()
+        raise
+    return conn
+
+
+def _history_image_metadata(images: Any) -> List[Dict[str, Any]]:
+    metadata: List[Dict[str, Any]] = []
+    if not isinstance(images, list):
+        return metadata
+
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        encoded = image.get("data")
+        size_bytes = 0
+        if isinstance(encoded, str):
+            # Base64 length can be converted without decoding the image again.
+            padding = len(encoded) - len(encoded.rstrip("="))
+            size_bytes = max(0, (len(encoded) * 3) // 4 - padding)
+        metadata.append(
+            {
+                "name": str(image.get("name") or ""),
+                "mimeType": str(image.get("mimeType") or ""),
+                "sizeBytes": size_bytes,
+            }
+        )
+    return metadata
+
+
+def _store_history(
+    cfg: RunnerConfig,
+    req: Dict[str, Any],
+    response: Dict[str, Any],
+    created_at: str,
+    duration_ms: int,
+) -> int:
+    meta = response.get("meta") or {}
+    result_json = json.dumps(response.get("result"), ensure_ascii=False, default=_json_default)
+    images_json = json.dumps(_history_image_metadata(response.get("images")), ensure_ascii=False)
+
+    with closing(_open_history_db(cfg)) as conn:
+        with conn:
+            cur = conn.execute(
+                """
+                INSERT INTO research_history (
+                    created_at, duration_ms, ok, exchange, symbol, bin_size,
+                    range_start, range_end, row_limit, timeout_sec, rows_loaded,
+                    code, error, stdout, stdout_truncated, stderr, stderr_truncated,
+                    result_json, images_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    created_at,
+                    max(0, int(duration_ms)),
+                    int(bool(response.get("ok"))),
+                    str(req.get("exchange") or ""),
+                    str(req.get("symbol") or ""),
+                    str(req.get("binSize") or ""),
+                    int(req.get("start") or 0),
+                    int(req.get("end") or 0),
+                    int(req.get("limit") or 0),
+                    int(req.get("timeoutSec") or 0),
+                    int(meta.get("rows") or 0),
+                    str(req.get("code") or ""),
+                    response.get("error"),
+                    str(response.get("stdout") or ""),
+                    int(bool(response.get("stdoutTruncated"))),
+                    str(response.get("stderr") or ""),
+                    int(bool(response.get("stderrTruncated"))),
+                    result_json,
+                    images_json,
+                ),
+            )
+            history_id = int(cur.lastrowid)
+
+            # Zero means unlimited retention. Pruning happens in the same
+            # transaction, so readers never observe a partially-pruned history.
+            if cfg.history_max_entries > 0:
+                conn.execute(
+                    """
+                    DELETE FROM research_history
+                    WHERE id NOT IN (
+                        SELECT id FROM research_history ORDER BY id DESC LIMIT ?
+                    )
+                    """,
+                    (cfg.history_max_entries,),
+                )
+
+    return history_id
+
+
+def _history_summary(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "createdAt": row["created_at"],
+        "durationMs": int(row["duration_ms"]),
+        "ok": bool(row["ok"]),
+        "exchange": row["exchange"],
+        "symbol": row["symbol"],
+        "binSize": row["bin_size"],
+        "start": int(row["range_start"]),
+        "end": int(row["range_end"]),
+        "rows": int(row["rows_loaded"]),
+        "error": row["error"],
+    }
+
+
+def _list_history(
+    cfg: RunnerConfig,
+    limit: int,
+    offset: int,
+    ok: Optional[bool] = None,
+    exchange: Optional[str] = None,
+    symbol: Optional[str] = None,
+) -> Dict[str, Any]:
+    conditions: List[str] = []
+    params: List[Any] = []
+    if ok is not None:
+        conditions.append("ok = ?")
+        params.append(int(ok))
+    if exchange:
+        conditions.append("exchange = ?")
+        params.append(exchange)
+    if symbol:
+        conditions.append("symbol = ?")
+        params.append(symbol)
+
+    where_sql = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+    with closing(_open_history_db(cfg)) as conn:
+        total = int(
+            conn.execute(f"SELECT COUNT(*) FROM research_history{where_sql}", params).fetchone()[0]
+        )
+        rows = conn.execute(
+            f"""
+            SELECT id, created_at, duration_ms, ok, exchange, symbol, bin_size,
+                   range_start, range_end, rows_loaded, error
+            FROM research_history{where_sql}
+            ORDER BY id DESC
+            LIMIT ? OFFSET ?
+            """,
+            [*params, limit, offset],
+        ).fetchall()
+
+    return {
+        "items": [_history_summary(row) for row in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+def _get_history(cfg: RunnerConfig, history_id: int) -> Optional[Dict[str, Any]]:
+    with closing(_open_history_db(cfg)) as conn:
+        row = conn.execute(
+            "SELECT * FROM research_history WHERE id = ?",
+            (history_id,),
+        ).fetchone()
+    if row is None:
+        return None
+
+    detail = _history_summary(row)
+    detail.update(
+        {
+            "limit": int(row["row_limit"]),
+            "timeoutSec": int(row["timeout_sec"]),
+            "code": row["code"],
+            "stdout": row["stdout"],
+            "stdoutTruncated": bool(row["stdout_truncated"]),
+            "stderr": row["stderr"],
+            "stderrTruncated": bool(row["stderr_truncated"]),
+            "result": json.loads(row["result_json"]),
+            "images": json.loads(row["images_json"]),
+        }
+    )
+    return detail
 
 
 def _mk_table(exchange: str, symbol: str, bin_size: str) -> str:
@@ -610,16 +843,10 @@ def _run_in_subprocess(req: Dict[str, Any], cfg: RunnerConfig, timeout_sec: int)
     return parent_conn.recv()
 
 
-app = FastAPI(title="python-runner", version="0.4.0")
+app = FastAPI(title="python-runner", version="0.5.0")
 
 
-@app.get("/health")
-def health() -> Dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.post("/v1/research/run")
-def run_research(req: ResearchRequest, http_req: Request) -> Dict[str, Any]:
+def _authorized_config(http_req: Request) -> RunnerConfig:
     try:
         cfg = load_config()
     except Exception as e:
@@ -629,6 +856,17 @@ def run_research(req: ResearchRequest, http_req: Request) -> Dict[str, Any]:
         auth = (http_req.headers.get("authorization") or "").strip()
         if auth != f"Bearer {cfg.token}":
             raise HTTPException(status_code=401, detail="unauthorized")
+    return cfg
+
+
+@app.get("/health")
+def health() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/v1/research/run")
+def run_research(req: ResearchRequest, http_req: Request) -> Dict[str, Any]:
+    cfg = _authorized_config(http_req)
 
     if req.start > req.end:
         raise HTTPException(status_code=400, detail="start must be <= end")
@@ -660,5 +898,47 @@ def run_research(req: ResearchRequest, http_req: Request) -> Dict[str, Any]:
         "code": req.code,
     }
 
+    created_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    started = time.perf_counter()
+
     # Keep user-code exceptions in response body (ok=false) so MCP can show stdout/stderr.
-    return _run_in_subprocess(payload, cfg, timeout_sec)
+    response = _run_in_subprocess(payload, cfg, timeout_sec)
+    duration_ms = round((time.perf_counter() - started) * 1000)
+    try:
+        response["historyId"] = _store_history(cfg, payload, response, created_at, duration_ms)
+    except Exception:
+        # A history storage problem must not discard a completed research result.
+        logger.exception("failed to store research execution history")
+        response["historyId"] = None
+        response["historyError"] = "failed to store execution history"
+    return response
+
+
+@app.get("/v1/research/history")
+def list_research_history(
+    http_req: Request,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    ok: Optional[bool] = Query(None),
+    exchange: Optional[str] = Query(None, min_length=1),
+    symbol: Optional[str] = Query(None, min_length=1),
+) -> Dict[str, Any]:
+    cfg = _authorized_config(http_req)
+    try:
+        return _list_history(cfg, limit, offset, ok, exchange, symbol)
+    except Exception as e:
+        logger.exception("failed to list research execution history")
+        raise HTTPException(status_code=500, detail=f"failed to read execution history: {e}")
+
+
+@app.get("/v1/research/history/{history_id}")
+def get_research_history(history_id: int, http_req: Request) -> Dict[str, Any]:
+    cfg = _authorized_config(http_req)
+    try:
+        history = _get_history(cfg, history_id)
+    except Exception as e:
+        logger.exception("failed to get research execution history")
+        raise HTTPException(status_code=500, detail=f"failed to read execution history: {e}")
+    if history is None:
+        raise HTTPException(status_code=404, detail="history entry not found")
+    return history
