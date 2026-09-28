@@ -1,5 +1,5 @@
 # ====== Build Stage ======
-FROM golang:1.25-alpine AS builder
+FROM golang:1.27.1-alpine AS builder
 
 RUN apk add --no-cache git gcc musl-dev
 
@@ -16,7 +16,7 @@ RUN CGO_ENABLED=1 GOPROXY="https://goproxy.cn,direct" go build -ldflags="-s -w -
 # ====== Runtime Stage ======
 # Go plugin (.so) requires the exact same Go version at runtime as at build time,
 # so we use the same golang base image instead of a minimal alpine.
-FROM golang:1.25-alpine
+FROM golang:1.27.1-alpine
 
 RUN apk add --no-cache ca-certificates tzdata gcc musl-dev
 

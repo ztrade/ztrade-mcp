@@ -65,7 +65,7 @@ func ensurePluginScript(script string, cfg *viper.Viper) (string, error) {
 	soPath := filepath.Join(pluginDir, fmt.Sprintf("%s_%x.so", base, sum[:6]))
 
 	builder := newStrategyBuilder(script, soPath, cfg)
-	if err := builder.Build(); err != nil {
+	if _, err := builder.Build(); err != nil {
 		return "", fmt.Errorf("failed to build so: %w", err)
 	}
 
@@ -127,7 +127,7 @@ func compileScriptContentWithCache(scriptID int64, scriptVersion int, scriptCont
 	}
 
 	builder := newStrategyBuilder(goPath, soPath, cfg)
-	if err := builder.Build(); err != nil {
+	if _, err := builder.Build(); err != nil {
 		return "", fmt.Errorf("build failed: %w", err)
 	}
 

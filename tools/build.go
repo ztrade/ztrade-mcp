@@ -42,7 +42,7 @@ func registerBuildStrategy(s *server.MCPServer, cfg *viper.Viper) {
 
 		if !compiledFromStore {
 			builder := newStrategyBuilder(script, output, cfg)
-			err := builder.Build()
+			_, err := builder.Build()
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("build failed: %s", err.Error())), nil
 			}
